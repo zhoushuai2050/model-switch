@@ -28,6 +28,17 @@ hash -r
 msw help
 ```
 
+如果安装报 `uv_cwd` / `getcwd: 无法访问父目录`，先回家目录再装：
+
+```bash
+cd ~
+npm uninstall -g model-switch
+hash -r
+npm i -g github:zhoushuai2050/model-switch
+hash -r
+msw help
+```
+
 装完没有 `msw` 命令时：
 
 ```bash
