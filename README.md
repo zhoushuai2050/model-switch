@@ -6,19 +6,34 @@
 
 ## 快速开始
 
-需要 **Node.js 22+**。本工具是本机 CLI，克隆后即可用，不用编译、不用注册账号。
+需要 **Node.js 22+**。本工具是本机 CLI，不用编译、不用注册账号。
+
+推荐从 GitHub 安装（装的是仓库源码，不是 npm 官网那个同名包）：
+
+```bash
+npm i -g github:zhoushuai2050/model-switch
+msw init
+msw status
+```
+
+等价写法：
+
+```bash
+npm i -g https://github.com/zhoushuai2050/model-switch.git
+```
+
+更新：
+
+```bash
+npm i -g github:zhoushuai2050/model-switch
+```
+
+也可以先克隆再跑，不必全局安装：
 
 ```bash
 git clone https://github.com/zhoushuai2050/model-switch.git
 cd model-switch
-
-# 可选：装到 PATH，之后到处都能敲 msw
-npm link
-
-# 导入本机已有的 Claude / Codex / Gemini / OpenCode 配置
 node src/cli.ts init
-# 已 npm link 则：msw init
-
 node src/cli.ts status
 ```
 

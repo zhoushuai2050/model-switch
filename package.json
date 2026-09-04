@@ -6,6 +6,11 @@
   "bin": {
     "msw": "./bin/msw"
   },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "msw": "node src/cli.ts",
     "test": "node --test tests/*.test.ts",
@@ -14,5 +19,21 @@
   "engines": {
     "node": ">=22"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhoushuai2050/model-switch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zhoushuai2050/model-switch/issues"
+  },
+  "homepage": "https://github.com/zhoushuai2050/model-switch#readme",
+  "keywords": [
+    "codex",
+    "claude",
+    "gemini",
+    "opencode",
+    "llm",
+    "model"
+  ],
   "license": "MIT"
 }
