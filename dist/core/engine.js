@@ -394,13 +394,13 @@ export class Engine {
         const steps = [];
         for await (const step of this.pingSteps(providerId, agentId))
             steps.push(step);
-        const httpOk = [...steps].reverse().find((item) => item.status === 'ok' && item.httpStatus && item.httpStatus < 400);
-        const failed = [...steps].reverse().find((item) => item.status === 'fail');
+        const summary = [...steps].reverse().find((item) => item.id === 'summary');
+        const http = [...steps].reverse().find((item) => item.httpStatus);
         return {
-            ok: Boolean(httpOk),
-            status: httpOk?.httpStatus ?? failed?.httpStatus,
-            url: httpOk?.url || failed?.url || '',
-            error: httpOk ? undefined : failed?.detail,
+            ok: summary?.status === 'ok' || summary?.status === 'warn',
+            status: http?.httpStatus,
+            url: http?.url || '',
+            error: summary?.status === 'fail' ? summary.detail : undefined,
             steps,
         };
     }
@@ -426,7 +426,7 @@ export class Engine {
             return;
         }
         yield { id: 'protocol', title: '检查协议', status: 'ok', detail: protocols.join(', ') };
-        let anyOk = false;
+        const ranks = [];
         for (const protocol of protocols) {
             const proto = provider.protocols[protocol];
             if (!proto)
@@ -438,42 +438,49 @@ export class Engine {
             yield {
                 id: `${protocol}-models`,
                 title: `${labelOf(protocol)} 拉取模型列表`,
-                status: listed.ok ? 'ok' : 'fail',
+                status: listed.rank,
                 method: 'GET',
                 url: getUrl,
                 httpStatus: listed.status,
                 ms: listed.ms,
-                detail: listed.ok ? listed.detail || '模型列表可用' : listed.detail,
+                detail: listed.detail,
             };
-            if (listed.ok) {
-                anyOk = true;
+            ranks.push(listed.rank);
+            if (listed.rank === 'ok')
+                continue;
+            const posts = postProbes(protocol, proto.baseUrl, models[0], headers, proto.wireApi);
+            if (!posts.length) {
+                yield { id: `${protocol}-chat`, title: `${labelOf(protocol)} 发送测试请求`, status: 'skip', detail: '没有可测的模型名，且模型列表不可用' };
                 continue;
             }
-            if (!models[0]) {
-                yield { id: `${protocol}-chat`, title: `${labelOf(protocol)} 发送测试请求`, status: 'skip', detail: '没有可测的模型名' };
-                continue;
+            for (const post of posts) {
+                yield { id: post.id, title: post.title, status: 'running', method: 'POST', url: post.url };
+                const replied = await probe(post.url, { method: 'POST', headers: post.headers, body: post.body });
+                yield {
+                    id: post.id,
+                    title: post.title,
+                    status: replied.rank,
+                    method: 'POST',
+                    url: post.url,
+                    httpStatus: replied.status,
+                    ms: replied.ms,
+                    detail: replied.detail,
+                };
+                ranks.push(replied.rank);
+                if (replied.rank === 'ok')
+                    break;
             }
-            const post = postProbe(protocol, proto.baseUrl, models[0], headers, proto.wireApi);
-            yield { id: `${protocol}-chat`, title: `${labelOf(protocol)} 发送测试请求`, status: 'running', method: 'POST', url: post.url };
-            const replied = await probe(post.url, { method: 'POST', headers: post.headers, body: post.body });
-            yield {
-                id: `${protocol}-chat`,
-                title: `${labelOf(protocol)} 发送测试请求`,
-                status: replied.ok ? 'ok' : 'fail',
-                method: 'POST',
-                url: post.url,
-                httpStatus: replied.status,
-                ms: replied.ms,
-                detail: replied.detail,
-            };
-            if (replied.ok)
-                anyOk = true;
         }
+        const best = ranks.includes('ok') ? 'ok' : ranks.includes('warn') ? 'warn' : 'fail';
         yield {
             id: 'summary',
-            title: anyOk ? '测通完成' : '测通失败',
-            status: anyOk ? 'ok' : 'fail',
-            detail: anyOk ? '至少有一个接口可用' : '模型列表和测试请求都没有成功',
+            title: best === 'ok' ? '测通成功' : best === 'warn' ? '服务可达' : '测通失败',
+            status: best,
+            detail: best === 'ok'
+                ? '接口可用'
+                : best === 'warn'
+                    ? '地址是通的，但鉴权或请求被拒绝，请检查 API Key / 模型名'
+                    : '连不上该地址',
         };
     }
     prompt() {
@@ -691,43 +698,70 @@ function labelOf(protocol) {
 }
 function authHeaders(protocol, apiKey) {
     if (protocol === 'anthropic') {
-        return { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+        return { 'x-api-key': apiKey.trim(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
     }
     const headers = { 'content-type': 'application/json' };
-    if (apiKey)
-        headers.Authorization = `Bearer ${apiKey}`;
+    if (apiKey.trim())
+        headers.Authorization = `Bearer ${apiKey.trim()}`;
     return headers;
 }
-function postProbe(protocol, baseUrl, model, headers, wireApi) {
+function postProbes(protocol, baseUrl, model, headers, wireApi) {
+    if (!model)
+        return [];
     const trimmed = baseUrl.replace(/\/$/, '');
     if (protocol === 'anthropic') {
-        return {
-            url: `${trimmed}/v1/messages`,
-            headers,
-            body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
-        };
+        return [{
+                id: 'anthropic-messages',
+                title: 'Anthropic 发送测试消息',
+                url: `${trimmed}/v1/messages`,
+                headers,
+                body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
+            }];
     }
     if (protocol === 'gemini') {
         const root = trimmed.endsWith('/v1') || trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`;
-        return {
-            url: `${root}/models/${encodeURIComponent(model)}:generateContent`,
-            headers,
-            body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
-        };
+        return [{
+                id: 'gemini-generate',
+                title: 'Gemini 发送测试请求',
+                url: `${root}/models/${encodeURIComponent(model)}:generateContent`,
+                headers,
+                body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
+            }];
     }
     const openaiRoot = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
-    if (wireApi === 'responses') {
-        return {
-            url: `${openaiRoot}/responses`,
-            headers,
-            body: JSON.stringify({ model, input: 'ping', max_output_tokens: 16 }),
-        };
-    }
-    return {
+    const chat = {
+        id: 'openai-chat',
+        title: 'OpenAI Chat Completions 测试',
         url: `${openaiRoot}/chat/completions`,
         headers,
         body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 16 }),
     };
+    const responses = {
+        id: 'openai-responses',
+        title: 'OpenAI Responses 测试',
+        url: `${openaiRoot}/responses`,
+        headers,
+        body: JSON.stringify({ model, input: 'ping', max_output_tokens: 16 }),
+    };
+    return wireApi === 'responses' ? [responses, chat] : [chat, responses];
+}
+function jsonMessage(text) {
+    try {
+        const json = JSON.parse(text);
+        return json.error?.message || json.message;
+    }
+    catch {
+        return undefined;
+    }
+}
+function classify(status) {
+    if (!status)
+        return 'fail';
+    if (status >= 200 && status < 300)
+        return 'ok';
+    if (status === 401 || status === 403 || status === 400)
+        return 'warn';
+    return 'fail';
 }
 async function probe(url, init) {
     const started = Date.now();
@@ -738,16 +772,26 @@ async function probe(url, init) {
             body: init.body,
             signal: AbortSignal.timeout(12000),
         });
-        const text = (await res.text()).slice(0, 240).replace(/\s+/g, ' ').trim();
+        const text = (await res.text()).slice(0, 280).replace(/\s+/g, ' ').trim();
         const ms = Date.now() - started;
-        if (res.ok) {
-            return { ok: true, status: res.status, ms, detail: text || `HTTP ${res.status}` };
+        const rank = classify(res.status);
+        const message = jsonMessage(text);
+        let detail = message || text || `HTTP ${res.status}`;
+        if (rank === 'warn' && (res.status === 401 || res.status === 403)) {
+            detail = `服务可达，鉴权失败：${message || 'API Key 无效'}`;
         }
-        return { ok: false, status: res.status, ms, detail: text || `HTTP ${res.status}` };
+        else if (rank === 'warn' && res.status === 400) {
+            detail = `服务可达，请求被拒绝：${message || text || 'HTTP 400'}`;
+        }
+        else if (rank === 'ok') {
+            detail = message || '接口可用';
+        }
+        return { ok: rank === 'ok', rank, status: res.status, ms, detail };
     }
     catch (error) {
         return {
             ok: false,
+            rank: 'fail',
             ms: Date.now() - started,
             detail: error instanceof Error ? error.message : String(error),
         };

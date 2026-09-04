@@ -243,7 +243,7 @@ async function openPingModal(providerId) {
     list.innerHTML = renderProbe(steps);
   }
   const summary = [...steps.values()].find((item) => item.id === 'summary');
-  if (summary) toast(summary.status === 'ok' ? '测通成功' : '测通失败', summary.status !== 'ok');
+  if (summary) toast(summary.title || (summary.status === 'fail' ? '测通失败' : '测通完成'), summary.status === 'fail');
 }
 
 function protocolOf(provider, name) {

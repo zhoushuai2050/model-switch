@@ -240,6 +240,7 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   animation: spin 0.7s linear infinite;
 }
 .probe-step.ok .probe-mark { border-color: var(--green); background: var(--green); }
+.probe-step.warn .probe-mark { border-color: #f5c16c; background: #f5c16c; }
 .probe-step.fail .probe-mark { border-color: var(--red); background: var(--red); }
 .probe-step.skip .probe-mark { border-color: var(--line-strong); }
 .probe-title { font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }

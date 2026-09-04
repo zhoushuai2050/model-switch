@@ -89,11 +89,11 @@ async function dispatch(): Promise<void> {
       let ok = false;
       for await (const step of engine.pingSteps(args.args[0], flag(args, 'agent') as AgentId | undefined)) {
         if (step.status === 'running') continue;
-        const mark = step.status === 'ok' ? color.green('ok') : step.status === 'skip' ? color.amber('skip') : color.red('fail');
+        const mark = step.status === 'ok' ? color.green('ok') : step.status === 'warn' ? color.amber('warn') : step.status === 'skip' ? color.amber('skip') : color.red('fail');
         const extra = [step.method, step.httpStatus, step.ms != null ? `${step.ms}ms` : '', step.url].filter(Boolean).join(' ');
         console.log(`${mark} ${step.title}${extra ? `  ${extra}` : ''}`);
         if (step.detail) console.log(`   ${step.detail}`);
-        if (step.id === 'summary') ok = step.status === 'ok';
+        if (step.id === 'summary') ok = step.status === 'ok' || step.status === 'warn';
       }
       if (!ok) process.exitCode = 1;
       return;
@@ -191,7 +191,7 @@ async function providerCommand(): Promise<void> {
       const mark = step.status === 'ok' ? 'ok' : step.status;
       console.log(`${mark} ${step.title}${step.httpStatus ? ` ${step.httpStatus}` : ''}${step.ms != null ? ` ${step.ms}ms` : ''}`);
       if (step.detail) console.log(`  ${step.detail}`);
-      if (step.id === 'summary') ok = step.status === 'ok';
+      if (step.id === 'summary') ok = step.status === 'ok' || step.status === 'warn';
     }
     if (!ok) process.exitCode = 1;
     return;

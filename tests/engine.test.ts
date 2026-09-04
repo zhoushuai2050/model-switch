@@ -218,3 +218,29 @@ test('ping reports successful models endpoint', async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
+
+test('ping treats 401 as reachable, not down', async () => {
+  const server = createServer((req, res) => {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: '客户端 API Key 无效', code: 'invalid_api_key' } }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'lvyrix',
+      apiKey: 'sk-bad',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      models: ['gpt-test'],
+    });
+    const result = await engine.ping(created.id);
+    assert.equal(result.ok, true);
+    const summary = result.steps.find((step) => step.id === 'summary');
+    assert.equal(summary?.status, 'warn');
+    assert.ok(result.steps.some((step) => step.httpStatus === 401 && step.status === 'warn'));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

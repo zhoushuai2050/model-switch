@@ -114,7 +114,7 @@ export function slug(value: string): string {
   return s || 'item';
 }
 
-export type PingStatus = 'running' | 'ok' | 'fail' | 'skip';
+export type PingStatus = 'running' | 'ok' | 'warn' | 'fail' | 'skip';
 
 export interface PingStep {
   id: string;
