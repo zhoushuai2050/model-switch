@@ -8,12 +8,13 @@
 
 需要 **Node.js 22+**。本工具是本机 CLI，不用编译、不用注册账号。
 
-推荐从 GitHub 安装。先打包再装，避免 `npm i -g github:...` 链到临时目录、装完文件消失：
+推荐先克隆到固定目录，再全局安装。不要用 `npm i -g github:...`：部分 npm 会链到临时 git 目录，装完文件就没了。
 
 ```bash
 cd ~
-tgz=$(npm pack github:zhoushuai2050/model-switch)
-npm i -g "$tgz"
+git clone https://github.com/zhoushuai2050/model-switch.git ~/.model-switch/app
+cd ~/.model-switch/app
+npm i -g . --omit=dev --ignore-scripts
 hash -r
 msw init
 msw status
@@ -22,10 +23,9 @@ msw status
 更新：
 
 ```bash
-cd ~
-npm uninstall -g model-switch
-tgz=$(npm pack github:zhoushuai2050/model-switch)
-npm i -g "$tgz"
+cd ~/.model-switch/app
+git pull
+npm i -g . --omit=dev --ignore-scripts
 hash -r
 msw help
 ```
