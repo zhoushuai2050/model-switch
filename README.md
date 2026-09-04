@@ -12,35 +12,45 @@
 
 ```bash
 npm i -g github:zhoushuai2050/model-switch
+hash -r
 msw init
 msw status
-```
-
-等价写法：
-
-```bash
-npm i -g https://github.com/zhoushuai2050/model-switch.git
 ```
 
 更新：
 
 ```bash
 npm uninstall -g model-switch
+npm cache clean --force
 hash -r
 npm i -g github:zhoushuai2050/model-switch
 hash -r
 msw help
 ```
 
-如果提示 `没有那个文件或目录`，多半是 bash 还记着旧路径，执行上面的 `hash -r` 后再试。
+装完没有 `msw` 命令时：
 
-也可以先克隆再跑，不必全局安装：
+```bash
+# 1. 看 npm 把可执行文件装到了哪
+npm prefix -g
+ls "$(npm prefix -g)/bin/msw"
+
+# 2. 把这个 bin 目录加进 PATH
+export PATH="$(npm prefix -g)/bin:$PATH"
+hash -r
+msw help
+
+# 3. 还不在 PATH 里就直接跑
+node "$(npm root -g)/model-switch/bin/msw.cjs" help
+```
+
+也可以只克隆、不全局安装：
 
 ```bash
 git clone https://github.com/zhoushuai2050/model-switch.git
 cd model-switch
-node src/cli.ts init
-node src/cli.ts status
+npm install
+node dist/cli.js init
 ```
 
 加一个渠道并切过去（预设或自定义中转二选一）：
