@@ -129,6 +129,7 @@ function renderProviders() {
         </div>
       </div>
       <div class="card-actions">
+        <button class="btn sm" data-edit="${provider.id}" type="button">查看/编辑</button>
         <button class="btn sm" data-ping="${provider.id}" type="button">测通</button>
         <button class="btn sm danger" data-del="${provider.id}" type="button">删除</button>
         <button class="btn sm ${current ? '' : 'primary'}" data-use="${provider.id}" type="button">${current ? '使用中' : '启用'}</button>
@@ -188,25 +189,43 @@ function closeModal() {
   $('#modal').innerHTML = '';
 }
 
-function openAddModal() {
+function protocolOf(provider, name) {
+  return provider?.protocols?.[name]?.baseUrl || '';
+}
+
+async function openProviderModal(providerId) {
   const presets = [{ id: 'custom', name: '自定义中转' }, ...state.presets];
+  let provider = null;
+  let models = [];
+  if (providerId) {
+    const detail = await api(`/api/providers/${encodeURIComponent(providerId)}`);
+    provider = detail.provider;
+    models = detail.models || [];
+  }
+  const editing = Boolean(provider);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>添加供应商</h2>
-    <form id="add-provider">
+    <h2>${editing ? '查看 / 编辑供应商' : '添加供应商'}</h2>
+    <form id="${editing ? 'edit-provider' : 'add-provider'}" data-id="${editing ? escapeHtml(provider.id) : ''}">
       <div class="form-grid">
-        <label class="field">类型
+        ${editing ? `<label class="field">ID<input value="${escapeHtml(provider.id)}" disabled /></label>` : `<label class="field">类型
           <select name="preset">${presets.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}</select>
+        </label>`}
+        <label class="field">名称<input name="name" value="${escapeHtml(provider?.name || '')}" placeholder="agentrouter / kimi" /></label>
+        <label class="field">API Key
+          <span class="key-row">
+            <input name="apiKey" type="password" value="${escapeHtml(provider?.apiKey || '')}" placeholder="${editing ? '已保存，可直接修改' : 'sk-...'}" autocomplete="off" />
+            <button class="btn sm" type="button" id="btn-toggle-key">显示</button>
+          </span>
         </label>
-        <label class="field">名称<input name="name" placeholder="agentrouter / kimi" /></label>
-        <label class="field">API Key<input name="apiKey" placeholder="sk-..." autocomplete="off" /></label>
-        <label class="field">OpenAI 地址<input name="openaiUrl" placeholder="https://api.example.com/v1" /></label>
-        <label class="field">Anthropic 地址<input name="anthropicUrl" placeholder="可选" /></label>
-        <label class="field">模型<input name="models" placeholder="gpt-5.6-sol,deepseek-v4-flash" /></label>
+        <label class="field">OpenAI 地址<input name="openaiUrl" value="${escapeHtml(protocolOf(provider, 'openai'))}" placeholder="https://api.example.com/v1" /></label>
+        <label class="field">Anthropic 地址<input name="anthropicUrl" value="${escapeHtml(protocolOf(provider, 'anthropic'))}" placeholder="可选" /></label>
+        <label class="field">Gemini 地址<input name="geminiUrl" value="${escapeHtml(protocolOf(provider, 'gemini'))}" placeholder="可选" /></label>
+        <label class="field">模型<input name="models" value="${escapeHtml(models.map((item) => item.modelId).join(','))}" placeholder="gpt-5.6-sol,deepseek-v4-flash" /></label>
       </div>
       <div class="dialog-actions">
         <button class="btn" type="button" id="btn-cancel">取消</button>
-        <button class="btn primary" type="submit">保存</button>
+        <button class="btn primary" type="submit">${editing ? '保存修改' : '添加'}</button>
       </div>
     </form>
   </div>`;
@@ -245,7 +264,19 @@ document.body.addEventListener('click', async (event) => {
     return;
   }
   if (t.id === 'btn-add' || t.id === 'btn-add-empty') {
-    openAddModal();
+    openProviderModal().catch((error) => toast(error.message || String(error), true));
+    return;
+  }
+  if (t.id === 'btn-toggle-key') {
+    const input = t.parentElement.querySelector('input');
+    if (input) {
+      input.type = input.type === 'password' ? 'text' : 'password';
+      t.textContent = input.type === 'password' ? '显示' : '隐藏';
+    }
+    return;
+  }
+  if (t.dataset.edit) {
+    openProviderModal(t.dataset.edit).catch((error) => toast(error.message || String(error), true));
     return;
   }
   if (t.id === 'btn-cancel') {
@@ -284,19 +315,25 @@ document.body.addEventListener('submit', async (event) => {
   if (!(form instanceof HTMLFormElement)) return;
   const data = Object.fromEntries(new FormData(form).entries());
   try {
-    if (form.id === 'add-provider') {
+    if (form.id === 'add-provider' || form.id === 'edit-provider') {
       const body = {
         preset: data.preset === 'custom' ? undefined : data.preset,
         name: data.name || undefined,
         apiKey: data.apiKey || undefined,
         openaiUrl: data.openaiUrl || undefined,
         anthropicUrl: data.anthropicUrl || undefined,
+        geminiUrl: data.geminiUrl || undefined,
         models: String(data.models || '').split(',').map((item) => item.trim()).filter(Boolean),
       };
       if (!body.models.length) delete body.models;
-      await api('/api/providers', { method: 'POST', body });
+      if (form.id === 'edit-provider') {
+        await api(`/api/providers/${encodeURIComponent(form.dataset.id)}`, { method: 'PUT', body });
+        toast('供应商已更新');
+      } else {
+        await api('/api/providers', { method: 'POST', body });
+        toast('供应商已添加');
+      }
       closeModal();
-      toast('供应商已添加');
     }
     if (form.id === 'add-mcp') {
       await api('/api/mcp', {

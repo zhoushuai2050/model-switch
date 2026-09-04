@@ -166,3 +166,24 @@ test('codex apply writes model_catalog_json for /model picker', () => {
   assert.ok(slugs.includes('glm-5.3'));
   assert.ok(slugs.includes('gpt-5.6-sol'));
 });
+
+test('updateProvider keeps key when blank and replaces models', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-old',
+    openaiUrl: 'https://old.example/v1',
+    models: ['gpt-old'],
+  });
+  const updated = engine.updateProvider(created.id, {
+    name: 'relay-2',
+    apiKey: '',
+    openaiUrl: 'https://new.example/v1',
+    models: ['gpt-5.6-sol', 'deepseek-v4-flash'],
+  });
+  assert.equal(updated.name, 'relay-2');
+  assert.equal(updated.apiKey, 'sk-old');
+  assert.equal(updated.protocols.openai?.baseUrl, 'https://new.example/v1');
+  const models = engine.getProvider(created.id).models.map((item) => item.modelId);
+  assert.deepEqual(models.sort(), ['deepseek-v4-flash', 'gpt-5.6-sol']);
+});

@@ -48,6 +48,10 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
   const path = url.pathname.replace(/\/$/, '') || '/';
   if (req.method === 'GET' && path === '/api/status') return send(res, 200, engine.status());
   if (req.method === 'GET' && path === '/api/providers') return send(res, 200, engine.listProviders());
+  if (req.method === 'GET' && path.startsWith('/api/providers/')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    return send(res, 200, engine.getProvider(id));
+  }
   if (req.method === 'GET' && path === '/api/profiles') return send(res, 200, engine.listProfiles());
   if (req.method === 'GET' && path === '/api/models') return send(res, 200, engine.listModels());
   if (req.method === 'GET' && path === '/api/presets') return send(res, 200, engine.listPresets());
@@ -78,6 +82,21 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
       models: Array.isArray(body.models) ? body.models.map(String) : undefined,
     });
     return send(res, 200, provider);
+  }
+  if (req.method === 'PUT' && path.startsWith('/api/providers/')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    const body = await readBody(req);
+    return send(res, 200, engine.updateProvider(id, {
+      name: body.name ? String(body.name) : undefined,
+      apiKey: body.apiKey != null ? String(body.apiKey) : undefined,
+      openaiUrl: body.openaiUrl ? String(body.openaiUrl) : undefined,
+      anthropicUrl: body.anthropicUrl ? String(body.anthropicUrl) : undefined,
+      geminiUrl: body.geminiUrl ? String(body.geminiUrl) : undefined,
+      wireApi: body.wireApi === 'chat' || body.wireApi === 'responses' ? body.wireApi : undefined,
+      models: Array.isArray(body.models) ? body.models.map(String) : undefined,
+      notes: body.notes != null ? String(body.notes) : undefined,
+      websiteUrl: body.websiteUrl ? String(body.websiteUrl) : undefined,
+    }));
   }
   if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/key')) {
     const id = path.split('/')[3];

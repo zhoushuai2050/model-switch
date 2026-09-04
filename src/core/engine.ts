@@ -63,6 +63,12 @@ export class Engine {
     return db.listProviders();
   }
 
+  getProvider(id: string): { provider: Provider; models: ModelRow[] } {
+    const provider = db.getProvider(id);
+    if (!provider) throw new EngineError(`Unknown provider: ${id}`);
+    return { provider, models: db.modelsForProvider(id) };
+  }
+
   listModels(): ModelRow[] {
     return db.listModels();
   }
@@ -203,16 +209,69 @@ export class Engine {
     return provider;
   }
 
-  updateProvider(id: string, patch: Partial<Pick<Provider, 'name' | 'apiKey' | 'notes' | 'websiteUrl' | 'protocols'>>): Provider {
+  updateProvider(id: string, patch: {
+    name?: string;
+    apiKey?: string;
+    notes?: string;
+    websiteUrl?: string;
+    openaiUrl?: string;
+    anthropicUrl?: string;
+    geminiUrl?: string;
+    wireApi?: 'chat' | 'responses';
+    models?: string[];
+    protocols?: Provider['protocols'];
+  }): Provider {
     const provider = db.getProvider(id);
     if (!provider) throw new EngineError(`Unknown provider: ${id}`);
+    const protocols: Provider['protocols'] = patch.protocols
+      ? { ...provider.protocols, ...patch.protocols }
+      : { ...provider.protocols };
+    if (patch.openaiUrl) {
+      protocols.openai = {
+        ...protocols.openai,
+        baseUrl: patch.openaiUrl,
+        wireApi: patch.wireApi || protocols.openai?.wireApi || 'responses',
+        authMode: protocols.openai?.authMode || 'openai_auth',
+      };
+    } else if (patch.wireApi && protocols.openai) {
+      protocols.openai = { ...protocols.openai, wireApi: patch.wireApi };
+    }
+    if (patch.anthropicUrl) {
+      protocols.anthropic = {
+        ...protocols.anthropic,
+        baseUrl: patch.anthropicUrl,
+        authMode: protocols.anthropic?.authMode || 'auth_token',
+      };
+    }
+    if (patch.geminiUrl) {
+      protocols.gemini = { ...protocols.gemini, baseUrl: patch.geminiUrl };
+    }
     const next: Provider = {
       ...provider,
-      ...patch,
-      protocols: patch.protocols ? { ...provider.protocols, ...patch.protocols } : provider.protocols,
+      name: patch.name?.trim() || provider.name,
+      apiKey: patch.apiKey && patch.apiKey.trim() ? patch.apiKey.trim() : provider.apiKey,
+      notes: patch.notes ?? provider.notes,
+      websiteUrl: patch.websiteUrl ?? provider.websiteUrl,
+      protocols,
       updatedAt: now(),
     };
     db.upsertProvider(next);
+    if (patch.models) {
+      const models = patch.models.map((item) => item.trim()).filter(Boolean);
+      if (models.length) {
+        db.deleteModelsForProvider(id);
+        for (const modelId of models) {
+          db.upsertModel({
+            id: `${id}-${slug(modelId)}`,
+            providerId: id,
+            modelId,
+            alias: slug(modelId),
+            agentHint: 'any',
+          });
+        }
+        this.ensureProviderProfile(next, models[0]);
+      }
+    }
     return next;
   }
 

@@ -222,3 +222,6 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
   .card { flex-direction: column; align-items: stretch; }
   .card-actions { justify-content: flex-end; }
 }
+
+.key-row { display: flex; gap: 6px; align-items: center; }
+.key-row input { flex: 1; min-width: 0; }
