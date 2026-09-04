@@ -82,6 +82,8 @@ msw serve --port 8787
 
 浏览器打开本机页面：导入现有配置、添加供应商、一键切换 Profile、测通、同步 MCP。
 
+顶部切换 Claude / Codex / Gemini / OpenCode 后，只显示当前 Agent 能用的供应商卡片。卡片上的 OpenAI / Anthropic / Gemini 标签表示已配置对应地址，测通也只测当前 Agent 的协议。
+
 ## 数据
 
 | 路径 | 用途 |

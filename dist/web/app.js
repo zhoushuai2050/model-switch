@@ -6,6 +6,19 @@ const APPS = [
   { id: 'opencode', name: 'OpenCode' },
 ];
 
+const PROTOCOL_LABELS = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+};
+
+const APP_PROTOCOL = {
+  claude: ['anthropic'],
+  codex: ['openai'],
+  opencode: ['openai'],
+  gemini: ['gemini', 'openai'],
+};
+
 const state = {
   view: 'providers',
   app: localStorage.getItem('msw-app') || 'codex',
@@ -53,10 +66,41 @@ function isCurrentProvider(provider) {
   return modelsOf(provider.id).some((item) => item.modelId === live.model);
 }
 
+function protocolsForApp(app = state.app) {
+  return APP_PROTOCOL[app] || ['openai', 'anthropic', 'gemini'];
+}
+
+function protocolUrl(provider, protocol) {
+  return provider?.protocols?.[protocol]?.baseUrl || '';
+}
+
+function configuredProtocols(provider) {
+  return Object.keys(PROTOCOL_LABELS).filter((item) => protocolUrl(provider, item));
+}
+
+function supportsAgent(provider, app = state.app) {
+  return protocolsForApp(app).some((item) => protocolUrl(provider, item));
+}
+
+function agentProtocol(provider, app = state.app) {
+  return protocolsForApp(app).find((item) => protocolUrl(provider, item));
+}
+
+function agentUrl(provider, app = state.app) {
+  const protocol = agentProtocol(provider, app);
+  return protocol ? protocolUrl(provider, protocol) : '';
+}
+
+function appName(app = state.app) {
+  return APPS.find((item) => item.id === app)?.name || app;
+}
+
+function agentNeedLabel(app = state.app) {
+  return protocolsForApp(app).map((item) => PROTOCOL_LABELS[item]).join(' / ');
+}
+
 function protocolLine(provider) {
-  return Object.values(provider.protocols || {})
-    .map((item) => item.baseUrl)
-    .filter(Boolean)[0] || '未配置地址';
+  return configuredProtocols(provider).map((item) => protocolUrl(provider, item)).join(' ') || '未配置地址';
 }
 
 function initial(name) {
@@ -94,39 +138,64 @@ function renderSwitcher() {
 function renderStatus() {
   const live = agent();
   const on = Boolean(live?.installed && live?.configured);
+  const available = state.providers.filter((item) => supportsAgent(item)).length;
   $('#status-chip').innerHTML = `<span class="dot ${on ? 'on' : 'off'}"></span>
-    <b>${live?.name || state.app}</b>
+    <b>${live?.name || appName()}</b>
     <span>${live?.model || '未配置'}</span>
-    <span>${live?.providerLabel || live?.bin || (live?.installed ? '已安装' : '未安装')}</span>`;
+    <span>${live?.providerLabel || live?.bin || (live?.installed ? '已安装' : '未安装')}</span>
+    <span>${available} 个可用</span>`;
 }
 
 function renderProviders() {
   const q = state.query.trim().toLowerCase();
-  const list = state.providers.filter((provider) => {
+  const scoped = state.providers.filter((provider) => supportsAgent(provider));
+  const list = scoped.filter((provider) => {
     if (!q) return true;
-    const hay = [provider.name, provider.id, protocolLine(provider), ...modelsOf(provider.id).map((item) => item.modelId)].join(' ').toLowerCase();
+    const hay = [
+      provider.name,
+      provider.id,
+      protocolLine(provider),
+      ...configuredProtocols(provider).map((item) => PROTOCOL_LABELS[item]),
+      ...modelsOf(provider.id).map((item) => item.modelId),
+    ].join(' ').toLowerCase();
     return hay.includes(q);
   });
   if (!list.length) {
+    const empty = !state.providers.length
+      ? { title: '还没有供应商', detail: '导入本机配置，或添加一个预设 / 自定义中转。' }
+      : !scoped.length
+        ? { title: `当前 ${appName()} 没有可用供应商`, detail: `请添加带 ${agentNeedLabel()} 地址的供应商，或切换到其他 Agent。` }
+        : { title: '没有匹配的供应商', detail: '换个关键词，或清空搜索后再试。' };
     $('#view-providers').innerHTML = `<div class="empty">
-      <h3>${state.providers.length ? '没有匹配的供应商' : '还没有供应商'}</h3>
-      <p>导入本机配置，或添加一个预设 / 自定义中转。</p>
+      <h3>${empty.title}</h3>
+      <p>${empty.detail}</p>
       <button class="btn primary" id="btn-add-empty" type="button">添加供应商</button>
     </div>`;
     return;
   }
-  $('#view-providers').innerHTML = `<div class="list">${list.map((provider) => {
+  $('#view-providers').innerHTML = `<div class="cards">${list.map((provider) => {
     const current = isCurrentProvider(provider);
     const models = modelsOf(provider.id).map((item) => item.modelId).join(', ') || '默认模型';
+    const protocol = agentProtocol(provider);
+    const url = agentUrl(provider);
+    const tags = configuredProtocols(provider).map((item) => {
+      const active = protocolsForApp().includes(item);
+      return `<span class="tag ${item}${active ? '' : ' dim'}">${PROTOCOL_LABELS[item]}</span>`;
+    }).join('');
     return `<article class="card ${current ? 'current' : ''}">
-      <div class="card-main">
+      <div class="card-head">
         <div class="icon-box">${initial(provider.name)}</div>
-        <div>
-          <h3>${escapeHtml(provider.name)} ${current ? '<span class="badge">当前</span>' : ''}
-            ${provider.apiKey ? '<span class="badge ok">KEY</span>' : '<span class="badge warn">无 KEY</span>'}
+        <div class="card-title">
+          <h3>${escapeHtml(provider.name)}
+            ${current ? '<span class="badge">当前</span>' : ''}
+            ${provider.apiKey ? '' : '<span class="badge warn">无 KEY</span>'}
           </h3>
-          <div class="meta">${escapeHtml(models)} · ${escapeHtml(protocolLine(provider))}</div>
+          <div class="tags">${tags}</div>
         </div>
+      </div>
+      <div class="card-body">
+        <div class="meta models">${escapeHtml(models)}</div>
+        <div class="meta url">${escapeHtml(protocol ? PROTOCOL_LABELS[protocol] : agentNeedLabel())} · ${escapeHtml(url || '未配置当前 Agent 地址')}</div>
       </div>
       <div class="card-actions">
         <button class="btn sm" data-edit="${provider.id}" type="button">查看/编辑</button>
@@ -207,7 +276,7 @@ async function openPingModal(providerId) {
   const provider = state.providers.find((item) => item.id === providerId);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>测通 ${escapeHtml(provider?.name || providerId)}</h2>
+    <h2>测通 ${escapeHtml(provider?.name || providerId)} · ${escapeHtml(appName())}</h2>
     <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">开始测试</div></div></div></div>
     <div class="dialog-actions">
       <button class="btn" type="button" id="btn-cancel">关闭</button>
@@ -309,7 +378,12 @@ document.body.addEventListener('click', async (event) => {
     state.app = t.dataset.app;
     localStorage.setItem('msw-app', state.app);
     state.view = 'providers';
-    await run(() => api('/api/agent', { method: 'POST', body: { agentId: state.app } }));
+    try {
+      await api('/api/agent', { method: 'POST', body: { agentId: state.app } });
+    } catch (error) {
+      toast(error.message || String(error), true);
+    }
+    await refresh().catch((error) => toast(error.message || String(error), true));
     return;
   }
   if (t.dataset.view) {

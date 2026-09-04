@@ -244,3 +244,53 @@ test('ping treats 401 as reachable, not down', async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
+
+test('ping only tests the current agent protocol', async () => {
+  const hits: string[] = [];
+  const server = createServer((req, res) => {
+    hits.push(`${req.method} ${req.url}`);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ id: 'gpt-test' }] }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'multi',
+      apiKey: 'sk-x',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      anthropicUrl: `http://127.0.0.1:${address.port}`,
+      geminiUrl: `http://127.0.0.1:${address.port}/v1beta`,
+      models: ['gpt-test'],
+    });
+
+    hits.length = 0;
+    const codex = await engine.ping(created.id, 'codex');
+    assert.equal(codex.ok, true);
+    assert.ok(codex.steps.some((step) => step.id === 'openai-models' && step.status === 'ok'));
+    assert.ok(!codex.steps.some((step) => step.id === 'anthropic-models' || step.id === 'gemini-models'));
+
+    hits.length = 0;
+    const claude = await engine.ping(created.id, 'claude');
+    assert.equal(claude.ok, true);
+    assert.ok(claude.steps.some((step) => step.id === 'anthropic-models' && step.status === 'ok'));
+    assert.ok(!claude.steps.some((step) => step.id === 'openai-models' || step.id === 'gemini-models'));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('ping fails when current agent protocol is missing', async () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'openai-only',
+    apiKey: 'sk-x',
+    openaiUrl: 'https://example.test/v1',
+    models: ['gpt-test'],
+  });
+  const result = await engine.ping(created.id, 'claude');
+  assert.equal(result.ok, false);
+  assert.match(String(result.error), /Anthropic/);
+});

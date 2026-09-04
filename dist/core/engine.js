@@ -420,12 +420,22 @@ export class Engine {
             status: 'ok',
             detail: `${provider.name} · ${provider.apiKey ? '已配置 Key' : '未配置 Key'} · 模型 ${models.join(', ') || '无'}`,
         };
-        const protocols = ['openai', 'anthropic', 'gemini'].filter((item) => provider.protocols[item]);
+        const agent = agentId && isAgentId(agentId) ? agentId : undefined;
+        const wanted = protocolsForAgent(agent);
+        const protocols = wanted.filter((item) => provider.protocols[item]?.baseUrl);
         if (!protocols.length) {
-            yield { id: 'protocol', title: '检查协议', status: 'fail', detail: '没有可用的协议地址' };
+            const need = wanted.map(labelOf).join(' / ');
+            const detail = agent ? `当前 ${agent} 需要 ${need} 地址，该供应商未配置` : '没有可用的协议地址';
+            yield { id: 'protocol', title: '检查协议', status: 'fail', detail };
+            yield { id: 'summary', title: '测通失败', status: 'fail', detail };
             return;
         }
-        yield { id: 'protocol', title: '检查协议', status: 'ok', detail: protocols.join(', ') };
+        yield {
+            id: 'protocol',
+            title: agent ? `按 ${agent} 测试 ${protocols.map(labelOf).join(' / ')}` : '检查协议',
+            status: 'ok',
+            detail: protocols.map((item) => `${labelOf(item)} ${provider.protocols[item]?.baseUrl}`).join(' · '),
+        };
         const ranks = [];
         for (const protocol of protocols) {
             const proto = provider.protocols[protocol];
@@ -688,6 +698,15 @@ function modelsUrl(baseUrl, protocol) {
     if (trimmed.endsWith('/v1'))
         return `${trimmed}/models`;
     return `${trimmed}/v1/models`;
+}
+function protocolsForAgent(agent) {
+    if (agent === 'claude')
+        return ['anthropic'];
+    if (agent === 'codex' || agent === 'opencode')
+        return ['openai'];
+    if (agent === 'gemini')
+        return ['gemini', 'openai'];
+    return ['openai', 'anthropic', 'gemini'];
 }
 function labelOf(protocol) {
     if (protocol === 'anthropic')
