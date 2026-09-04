@@ -187,16 +187,16 @@ export class Engine {
     };
     db.upsertProvider(provider);
     const models =
-      input.models?.map((modelId) => ({ modelId })) ||
+      input.models?.map((modelId) => ({ modelId, alias: slug(modelId), agentHint: 'any' as const })) ||
       preset?.models ||
-      [{ modelId: 'default' }];
+      [{ modelId: 'default', alias: 'default', agentHint: 'any' as const }];
     for (const model of models) {
       db.upsertModel({
         id: `${id}-${slug(model.modelId)}`,
         providerId: id,
         modelId: model.modelId,
-        alias: 'alias' in model ? model.alias : slug(model.modelId),
-        agentHint: 'agentHint' in model ? model.agentHint : 'any',
+        alias: model.alias || slug(model.modelId),
+        agentHint: model.agentHint || 'any',
       });
     }
     this.ensureProviderProfile(provider, models[0]?.modelId || 'default');
@@ -253,7 +253,8 @@ export class Engine {
   }
 
   use(target: string, opts: { agent?: string; scope?: 'global' | 'session' } = {}): SwitchResult {
-    const parsed = parseTarget(target, opts.agent || db.getState().currentAgent);
+    const fallback = opts.agent && isAgentId(opts.agent) ? opts.agent : db.getState().currentAgent;
+    const parsed = parseTarget(target, fallback);
     if (parsed.agent) this.setAgent(parsed.agent);
     if (parsed.kind === 'profile') {
       return this.applyProfile(parsed.id, { agent: parsed.agent, scope: opts.scope });

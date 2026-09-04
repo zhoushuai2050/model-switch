@@ -5,10 +5,15 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
+    "outDir": "dist",
+    "rootDir": "src",
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
-    "types": ["node"]
+    "types": ["node"],
+    "sourceMap": false,
+    "declaration": false
   },
-  "include": ["src", "tests"]
+  "include": ["src"],
+  "exclude": ["src/web"]
 }

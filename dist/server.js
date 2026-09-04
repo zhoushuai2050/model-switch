@@ -1,0 +1,142 @@
+import { createServer } from 'node:http';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { engine } from "./core/engine.js";
+import { isAgentId } from "./core/types.js";
+const here = dirname(fileURLToPath(import.meta.url));
+const webRoot = existsSync(join(here, 'web', 'index.html'))
+    ? join(here, 'web')
+    : join(here, '..', 'src', 'web');
+const mime = {
+    '.html': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.json': 'application/json',
+};
+export async function startServer(port = 8787) {
+    const server = createServer((req, res) => {
+        void handle(req, res);
+    });
+    await new Promise((resolve, reject) => {
+        server.on('error', reject);
+        server.listen(port, '127.0.0.1', () => resolve());
+    });
+    console.log(`Model Switch 管理台  http://127.0.0.1:${port}`);
+}
+async function handle(req, res) {
+    try {
+        const url = new URL(req.url || '/', 'http://127.0.0.1');
+        if (url.pathname.startsWith('/api/')) {
+            await api(req, res, url);
+            return;
+        }
+        staticFile(res, url.pathname);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        send(res, 400, { error: message });
+    }
+}
+async function api(req, res, url) {
+    const path = url.pathname.replace(/\/$/, '') || '/';
+    if (req.method === 'GET' && path === '/api/status')
+        return send(res, 200, engine.status());
+    if (req.method === 'GET' && path === '/api/providers')
+        return send(res, 200, engine.listProviders());
+    if (req.method === 'GET' && path === '/api/profiles')
+        return send(res, 200, engine.listProfiles());
+    if (req.method === 'GET' && path === '/api/models')
+        return send(res, 200, engine.listModels());
+    if (req.method === 'GET' && path === '/api/presets')
+        return send(res, 200, engine.listPresets());
+    if (req.method === 'GET' && path === '/api/mcp')
+        return send(res, 200, engine.listMcp());
+    if (req.method === 'GET' && path === '/api/logs')
+        return send(res, 200, engine.listLogs());
+    if (req.method === 'POST' && path === '/api/init')
+        return send(res, 200, engine.init());
+    if (req.method === 'POST' && path === '/api/switch') {
+        const body = await readBody(req);
+        const result = engine.use(String(body.target || body.profileId || ''), {
+            agent: body.agent ? String(body.agent) : undefined,
+        });
+        return send(res, 200, result);
+    }
+    if (req.method === 'POST' && path === '/api/agent') {
+        const body = await readBody(req);
+        engine.setAgent(String(body.agentId || body.id));
+        return send(res, 200, engine.status());
+    }
+    if (req.method === 'POST' && path === '/api/providers') {
+        const body = await readBody(req);
+        const provider = engine.addProvider({
+            preset: body.preset ? String(body.preset) : undefined,
+            name: body.name ? String(body.name) : undefined,
+            apiKey: body.apiKey ? String(body.apiKey) : undefined,
+            openaiUrl: body.openaiUrl ? String(body.openaiUrl) : undefined,
+            anthropicUrl: body.anthropicUrl ? String(body.anthropicUrl) : undefined,
+            geminiUrl: body.geminiUrl ? String(body.geminiUrl) : undefined,
+            models: Array.isArray(body.models) ? body.models.map(String) : undefined,
+        });
+        return send(res, 200, provider);
+    }
+    if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/key')) {
+        const id = path.split('/')[3];
+        const body = await readBody(req);
+        return send(res, 200, engine.updateProvider(id, { apiKey: String(body.apiKey || '') }));
+    }
+    if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/ping')) {
+        const id = path.split('/')[3];
+        return send(res, 200, await engine.ping(id));
+    }
+    if (req.method === 'DELETE' && path.startsWith('/api/providers/')) {
+        engine.deleteProvider(path.split('/')[3]);
+        return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && path === '/api/mcp/sync') {
+        return send(res, 200, { synced: engine.syncMcp() });
+    }
+    if (req.method === 'POST' && path === '/api/mcp') {
+        const body = await readBody(req);
+        const agents = Array.isArray(body.agents) ? body.agents.filter((item) => isAgentId(String(item))) : [];
+        return send(res, 200, engine.addMcp({
+            name: String(body.name || ''),
+            command: body.command ? String(body.command) : undefined,
+            args: Array.isArray(body.args) ? body.args.map(String) : undefined,
+            url: body.url ? String(body.url) : undefined,
+            agents,
+        }));
+    }
+    send(res, 404, { error: 'not found' });
+}
+function staticFile(res, pathname) {
+    let rel = pathname === '/' ? '/index.html' : pathname;
+    rel = rel.replace(/\.\./g, '');
+    const file = join(webRoot, rel);
+    if (!existsSync(file)) {
+        send(res, 404, { error: 'not found' });
+        return;
+    }
+    const type = mime[extname(file)] || 'application/octet-stream';
+    res.writeHead(200, { 'content-type': type });
+    res.end(readFileSync(file));
+}
+function send(res, status, body) {
+    const json = JSON.stringify(body);
+    res.writeHead(status, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+    });
+    res.end(json);
+}
+async function readBody(req) {
+    const chunks = [];
+    for await (const chunk of req)
+        chunks.push(Buffer.from(chunk));
+    const text = Buffer.concat(chunks).toString('utf8').trim();
+    if (!text)
+        return {};
+    return JSON.parse(text);
+}

@@ -1,11 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { engine } from './core/engine.ts';
 import { isAgentId } from './core/types.ts';
 
-const webRoot = join(fileURLToPath(new URL('.', import.meta.url)), 'web');
+const here = dirname(fileURLToPath(import.meta.url));
+const webRoot = existsSync(join(here, 'web', 'index.html'))
+  ? join(here, 'web')
+  : join(here, '..', 'src', 'web');
+
 
 const mime: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',

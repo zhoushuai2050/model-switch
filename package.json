@@ -8,13 +8,15 @@
   },
   "files": [
     "bin",
-    "src",
+    "dist",
     "README.md"
   ],
   "scripts": {
-    "msw": "node src/cli.ts",
+    "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
+    "msw": "node dist/cli.js",
     "test": "node --test tests/*.test.ts",
-    "serve": "node src/cli.ts serve"
+    "serve": "node dist/cli.js serve"
   },
   "engines": {
     "node": ">=22"
@@ -35,5 +37,9 @@
     "llm",
     "model"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
 }
