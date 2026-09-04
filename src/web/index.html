@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Model Switch</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="frame">
+      <header class="top">
+        <div class="brand">
+          <span class="mark">MS</span>
+          <div>
+            <h1>Model Switch</h1>
+            <p>本机 Agent / 模型切换台</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="btn-init" class="ghost">导入本机配置</button>
+          <span id="prompt" class="chip">—</span>
+        </div>
+      </header>
+
+      <section class="rack" id="agents"></section>
+
+      <nav class="tabs">
+        <button data-tab="profiles" class="active">Profiles</button>
+        <button data-tab="providers">Providers</button>
+        <button data-tab="mcp">MCP</button>
+      </nav>
+
+      <section id="panel-profiles" class="panel"></section>
+      <section id="panel-providers" class="panel hidden"></section>
+      <section id="panel-mcp" class="panel hidden"></section>
+
+      <footer>
+        终端里也可以：<code>msw use kimi</code> · <code>msw run --profile cheap</code> · 数据在 <code>~/.model-switch</code>
+      </footer>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
