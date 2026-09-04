@@ -225,3 +225,26 @@ input:focus, select:focus { outline: 2px solid var(--primary-soft); border-color
 
 .key-row { display: flex; gap: 6px; align-items: center; }
 .key-row input { flex: 1; min-width: 0; }
+
+.probe { display: flex; flex-direction: column; gap: 0; max-height: 52vh; overflow: auto; }
+.probe-step {
+  display: grid; grid-template-columns: 22px 1fr; gap: 10px;
+  padding: 10px 2px; border-bottom: 1px solid var(--line);
+}
+.probe-mark {
+  width: 18px; height: 18px; margin-top: 2px; border-radius: 50%;
+  border: 2px solid var(--faint); box-sizing: border-box;
+}
+.probe-step.running .probe-mark {
+  border-color: var(--primary); border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+.probe-step.ok .probe-mark { border-color: var(--green); background: var(--green); }
+.probe-step.fail .probe-mark { border-color: var(--red); background: var(--red); }
+.probe-step.skip .probe-mark { border-color: var(--line-strong); }
+.probe-title { font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.probe-detail {
+  margin-top: 4px; color: var(--muted); font-size: 12px; font-family: var(--mono);
+  white-space: pre-wrap; word-break: break-all;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

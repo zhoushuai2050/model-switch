@@ -86,9 +86,16 @@ async function dispatch(): Promise<void> {
       return;
     }
     case 'ping': {
-      const result = await engine.ping(args.args[0], flag(args, 'agent') as AgentId | undefined);
-      console.log(`${result.ok ? color.green('ok') : color.red('fail')} ${result.status ?? ''} ${result.url}`);
-      if (result.error) console.log(result.error);
+      let ok = false;
+      for await (const step of engine.pingSteps(args.args[0], flag(args, 'agent') as AgentId | undefined)) {
+        if (step.status === 'running') continue;
+        const mark = step.status === 'ok' ? color.green('ok') : step.status === 'skip' ? color.amber('skip') : color.red('fail');
+        const extra = [step.method, step.httpStatus, step.ms != null ? `${step.ms}ms` : '', step.url].filter(Boolean).join(' ');
+        console.log(`${mark} ${step.title}${extra ? `  ${extra}` : ''}`);
+        if (step.detail) console.log(`   ${step.detail}`);
+        if (step.id === 'summary') ok = step.status === 'ok';
+      }
+      if (!ok) process.exitCode = 1;
       return;
     }
     case 'prompt':
@@ -176,8 +183,17 @@ async function providerCommand(): Promise<void> {
     return;
   }
   if (sub === 'ping') {
-    const result = await engine.ping(rest[0]);
-    console.log(`${result.ok ? 'ok' : 'fail'} ${result.status ?? ''} ${result.url}`);
+    args.args = rest;
+    // reuse top-level ping formatting
+    let ok = false;
+    for await (const step of engine.pingSteps(rest[0])) {
+      if (step.status === 'running') continue;
+      const mark = step.status === 'ok' ? 'ok' : step.status;
+      console.log(`${mark} ${step.title}${step.httpStatus ? ` ${step.httpStatus}` : ''}${step.ms != null ? ` ${step.ms}ms` : ''}`);
+      if (step.detail) console.log(`  ${step.detail}`);
+      if (step.id === 'summary') ok = step.status === 'ok';
+    }
+    if (!ok) process.exitCode = 1;
     return;
   }
   throw new EngineError(

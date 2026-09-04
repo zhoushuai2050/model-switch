@@ -107,8 +107,23 @@ async function api(req, res, url) {
         return send(res, 200, engine.updateProvider(id, { apiKey: String(body.apiKey || '') }));
     }
     if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/ping')) {
-        const id = path.split('/')[3];
-        return send(res, 200, await engine.ping(id));
+        const id = decodeURIComponent(path.split('/')[3] || '');
+        const agent = url.searchParams.get('agent');
+        res.writeHead(200, {
+            'content-type': 'application/x-ndjson; charset=utf-8',
+            'cache-control': 'no-store',
+        });
+        try {
+            for await (const step of engine.pingSteps(id, agent && isAgentId(agent) ? agent : undefined)) {
+                res.write(`${JSON.stringify(step)}\n`);
+            }
+        }
+        catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            res.write(`${JSON.stringify({ id: 'summary', title: '测通失败', status: 'fail', detail })}\n`);
+        }
+        res.end();
+        return;
     }
     if (req.method === 'DELETE' && path.startsWith('/api/providers/')) {
         engine.deleteProvider(path.split('/')[3]);

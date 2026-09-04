@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import { afterEach, beforeEach, test } from 'node:test';
 import { resetDbCache } from '../src/core/db.ts';
 import { Engine } from '../src/core/engine.ts';
@@ -186,4 +187,34 @@ test('updateProvider keeps key when blank and replaces models', () => {
   assert.equal(updated.protocols.openai?.baseUrl, 'https://new.example/v1');
   const models = engine.getProvider(created.id).models.map((item) => item.modelId);
   assert.deepEqual(models.sort(), ['deepseek-v4-flash', 'gpt-5.6-sol']);
+});
+
+test('ping reports successful models endpoint', async () => {
+  const server = createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'gpt-test' }] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end('no');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'local',
+      apiKey: 'sk-x',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      models: ['gpt-test'],
+    });
+    const result = await engine.ping(created.id);
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 200);
+    assert.ok(result.steps.some((step) => step.id === 'openai-models' && step.status === 'ok'));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
 });

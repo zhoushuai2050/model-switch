@@ -189,6 +189,63 @@ function closeModal() {
   $('#modal').innerHTML = '';
 }
 
+function renderProbe(steps) {
+  return [...steps.values()].map((step) => {
+    const meta = [step.method, step.httpStatus, step.ms != null ? `${step.ms}ms` : ''].filter(Boolean).join(' · ');
+    return `<div class="probe-step ${step.status}">
+      <span class="probe-mark"></span>
+      <div>
+        <div class="probe-title">${escapeHtml(step.title)} ${meta ? `<span class="muted">${escapeHtml(meta)}</span>` : ''}</div>
+        ${step.url ? `<div class="meta">${escapeHtml(step.url)}</div>` : ''}
+        ${step.detail ? `<div class="probe-detail">${escapeHtml(step.detail)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openPingModal(providerId) {
+  const provider = state.providers.find((item) => item.id === providerId);
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML = `<div class="dialog">
+    <h2>测通 ${escapeHtml(provider?.name || providerId)}</h2>
+    <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">开始测试</div></div></div></div>
+    <div class="dialog-actions">
+      <button class="btn" type="button" id="btn-cancel">关闭</button>
+    </div>
+  </div>`;
+  const list = $('#probe-list');
+  const steps = new Map();
+  const res = await fetch(`/api/providers/${encodeURIComponent(providerId)}/ping?agent=${encodeURIComponent(state.app)}`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(data.error || res.statusText);
+  }
+  if (!res.body) throw new Error('测通没有返回内容');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const step = JSON.parse(line);
+      steps.set(step.id, step);
+      list.innerHTML = renderProbe(steps);
+    }
+  }
+  if (buf.trim()) {
+    const step = JSON.parse(buf);
+    steps.set(step.id, step);
+    list.innerHTML = renderProbe(steps);
+  }
+  const summary = [...steps.values()].find((item) => item.id === 'summary');
+  if (summary) toast(summary.status === 'ok' ? '测通成功' : '测通失败', summary.status !== 'ok');
+}
+
 function protocolOf(provider, name) {
   return provider?.protocols?.[name]?.baseUrl || '';
 }
@@ -224,6 +281,7 @@ async function openProviderModal(providerId) {
         <label class="field">模型<input name="models" value="${escapeHtml(models.map((item) => item.modelId).join(','))}" placeholder="gpt-5.6-sol,deepseek-v4-flash" /></label>
       </div>
       <div class="dialog-actions">
+        ${editing ? `<button class="btn" type="button" data-ping="${escapeHtml(provider.id)}">测通</button>` : ''}
         <button class="btn" type="button" id="btn-cancel">取消</button>
         <button class="btn primary" type="submit">${editing ? '保存修改' : '添加'}</button>
       </div>
@@ -288,15 +346,7 @@ document.body.addEventListener('click', async (event) => {
     return;
   }
   if (t.dataset.ping) {
-    try {
-      t.disabled = true;
-      const result = await api(`/api/providers/${t.dataset.ping}/ping`, { method: 'POST', body: {} });
-      toast(result.ok ? `测通 OK ${result.status || ''}`.trim() : '测通失败', !result.ok);
-    } catch (error) {
-      toast(error.message || String(error), true);
-    } finally {
-      t.disabled = false;
-    }
+    openPingModal(t.dataset.ping).catch((error) => toast(error.message || String(error), true));
     return;
   }
   if (t.dataset.del) {

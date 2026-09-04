@@ -16,6 +16,8 @@ import {
   type ModelRow,
   type Profile,
   type ProfileBinding,
+  type PingResult,
+  type PingStep,
   type Protocol,
   type ProtocolConfig,
   type Provider,
@@ -453,33 +455,91 @@ export class Engine {
     return synced;
   }
 
-  async ping(providerId?: string, agentId?: AgentId): Promise<{ ok: boolean; status?: number; url: string; error?: string }> {
+  async ping(providerId?: string, agentId?: AgentId): Promise<PingResult> {
+    const steps: PingStep[] = [];
+    for await (const step of this.pingSteps(providerId, agentId)) steps.push(step);
+    const httpOk = [...steps].reverse().find((item) => item.status === 'ok' && item.httpStatus && item.httpStatus < 400);
+    const failed = [...steps].reverse().find((item) => item.status === 'fail');
+    return {
+      ok: Boolean(httpOk),
+      status: httpOk?.httpStatus ?? failed?.httpStatus,
+      url: httpOk?.url || failed?.url || '',
+      error: httpOk ? undefined : failed?.detail,
+      steps,
+    };
+  }
+
+  async *pingSteps(providerId?: string, agentId?: AgentId): AsyncGenerator<PingStep> {
+    yield { id: 'load', title: '读取供应商配置', status: 'running' };
     const provider = providerId
       ? db.getProvider(providerId) || db.listProviders().find((item) => item.name.toLowerCase() === providerId.toLowerCase())
       : payloadForAgent(requireAgent(agentId || db.getState().currentAgent)).provider;
-    if (!provider) throw new EngineError('No provider to ping');
-    const agent = agentId && isAgentId(agentId) ? agentId : db.getState().currentAgent;
-    const protocol: Protocol =
-      (agent && getAdapter(agent).protocol) ||
-      (provider.protocols.openai && 'openai') ||
-      (provider.protocols.anthropic && 'anthropic') ||
-      'gemini';
-    const proto = provider.protocols[protocol] || provider.protocols.openai || provider.protocols.anthropic || provider.protocols.gemini;
-    if (!proto) throw new EngineError('Provider has no protocol URL');
-    const url = modelsUrl(proto.baseUrl, protocol);
-    try {
-      const headers: Record<string, string> = {};
-      if (protocol === 'anthropic') {
-        headers['x-api-key'] = provider.apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-      } else if (provider.apiKey) {
-        headers.Authorization = `Bearer ${provider.apiKey}`;
-      }
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-      return { ok: res.ok, status: res.status, url };
-    } catch (error) {
-      return { ok: false, url, error: error instanceof Error ? error.message : String(error) };
+    if (!provider) {
+      yield { id: 'load', title: '读取供应商配置', status: 'fail', detail: '找不到供应商' };
+      return;
     }
+    const models = db.modelsForProvider(provider.id).map((item) => item.modelId);
+    yield {
+      id: 'load',
+      title: '读取供应商配置',
+      status: 'ok',
+      detail: `${provider.name} · ${provider.apiKey ? '已配置 Key' : '未配置 Key'} · 模型 ${models.join(', ') || '无'}`,
+    };
+
+    const protocols = (['openai', 'anthropic', 'gemini'] as Protocol[]).filter((item) => provider.protocols[item]);
+    if (!protocols.length) {
+      yield { id: 'protocol', title: '检查协议', status: 'fail', detail: '没有可用的协议地址' };
+      return;
+    }
+    yield { id: 'protocol', title: '检查协议', status: 'ok', detail: protocols.join(', ') };
+
+    let anyOk = false;
+    for (const protocol of protocols) {
+      const proto = provider.protocols[protocol];
+      if (!proto) continue;
+      const headers = authHeaders(protocol, provider.apiKey);
+      const getUrl = modelsUrl(proto.baseUrl, protocol);
+      yield { id: `${protocol}-models`, title: `${labelOf(protocol)} 拉取模型列表`, status: 'running', method: 'GET', url: getUrl };
+      const listed = await probe(getUrl, { method: 'GET', headers });
+      yield {
+        id: `${protocol}-models`,
+        title: `${labelOf(protocol)} 拉取模型列表`,
+        status: listed.ok ? 'ok' : 'fail',
+        method: 'GET',
+        url: getUrl,
+        httpStatus: listed.status,
+        ms: listed.ms,
+        detail: listed.ok ? listed.detail || '模型列表可用' : listed.detail,
+      };
+      if (listed.ok) {
+        anyOk = true;
+        continue;
+      }
+      if (!models[0]) {
+        yield { id: `${protocol}-chat`, title: `${labelOf(protocol)} 发送测试请求`, status: 'skip', detail: '没有可测的模型名' };
+        continue;
+      }
+      const post = postProbe(protocol, proto.baseUrl, models[0], headers, proto.wireApi);
+      yield { id: `${protocol}-chat`, title: `${labelOf(protocol)} 发送测试请求`, status: 'running', method: 'POST', url: post.url };
+      const replied = await probe(post.url, { method: 'POST', headers: post.headers, body: post.body });
+      yield {
+        id: `${protocol}-chat`,
+        title: `${labelOf(protocol)} 发送测试请求`,
+        status: replied.ok ? 'ok' : 'fail',
+        method: 'POST',
+        url: post.url,
+        httpStatus: replied.status,
+        ms: replied.ms,
+        detail: replied.detail,
+      };
+      if (replied.ok) anyOk = true;
+    }
+    yield {
+      id: 'summary',
+      title: anyOk ? '测通完成' : '测通失败',
+      status: anyOk ? 'ok' : 'fail',
+      detail: anyOk ? '至少有一个接口可用' : '模型列表和测试请求都没有成功',
+    };
   }
 
   prompt(): string {
@@ -685,6 +745,77 @@ function modelsUrl(baseUrl: string, protocol: Protocol): string {
   if (protocol === 'anthropic') return `${trimmed}/v1/models`;
   if (trimmed.endsWith('/v1')) return `${trimmed}/models`;
   return `${trimmed}/v1/models`;
+}
+
+function labelOf(protocol: Protocol): string {
+  if (protocol === 'anthropic') return 'Anthropic';
+  if (protocol === 'gemini') return 'Gemini';
+  return 'OpenAI';
+}
+
+function authHeaders(protocol: Protocol, apiKey: string): Record<string, string> {
+  if (protocol === 'anthropic') {
+    return { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+  }
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  return headers;
+}
+
+function postProbe(protocol: Protocol, baseUrl: string, model: string, headers: Record<string, string>, wireApi?: string) {
+  const trimmed = baseUrl.replace(/\/$/, '');
+  if (protocol === 'anthropic') {
+    return {
+      url: `${trimmed}/v1/messages`,
+      headers,
+      body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
+    };
+  }
+  if (protocol === 'gemini') {
+    const root = trimmed.endsWith('/v1') || trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`;
+    return {
+      url: `${root}/models/${encodeURIComponent(model)}:generateContent`,
+      headers,
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
+    };
+  }
+  const openaiRoot = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+  if (wireApi === 'responses') {
+    return {
+      url: `${openaiRoot}/responses`,
+      headers,
+      body: JSON.stringify({ model, input: 'ping', max_output_tokens: 16 }),
+    };
+  }
+  return {
+    url: `${openaiRoot}/chat/completions`,
+    headers,
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 16 }),
+  };
+}
+
+async function probe(url: string, init: { method: string; headers: Record<string, string>; body?: string }) {
+  const started = Date.now();
+  try {
+    const res = await fetch(url, {
+      method: init.method,
+      headers: init.headers,
+      body: init.body,
+      signal: AbortSignal.timeout(12000),
+    });
+    const text = (await res.text()).slice(0, 240).replace(/\s+/g, ' ').trim();
+    const ms = Date.now() - started;
+    if (res.ok) {
+      return { ok: true, status: res.status, ms, detail: text || `HTTP ${res.status}` };
+    }
+    return { ok: false, status: res.status, ms, detail: text || `HTTP ${res.status}` };
+  } catch (error) {
+    return {
+      ok: false,
+      ms: Date.now() - started,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export const engine = new Engine();

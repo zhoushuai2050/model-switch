@@ -113,3 +113,24 @@ export function slug(value: string): string {
     .replace(/^-+|-+$/g, '');
   return s || 'item';
 }
+
+export type PingStatus = 'running' | 'ok' | 'fail' | 'skip';
+
+export interface PingStep {
+  id: string;
+  title: string;
+  status: PingStatus;
+  method?: string;
+  url?: string;
+  httpStatus?: number;
+  ms?: number;
+  detail?: string;
+}
+
+export interface PingResult {
+  ok: boolean;
+  status?: number;
+  url: string;
+  error?: string;
+  steps: PingStep[];
+}
