@@ -24,7 +24,7 @@ function copyWeb() {
 }
 
 function chmodBins() {
-  for (const rel of ['dist/cli.js', 'bin/msw.cjs', 'bin/msw']) {
+  for (const rel of ['dist/cli.js', 'bin/msw.cjs', 'bin/msw', 'bin/link.sh']) {
     const file = join(root, rel);
     if (!existsSync(file)) continue;
     if (rel === 'dist/cli.js') {

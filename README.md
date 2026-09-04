@@ -11,6 +11,7 @@
 推荐从 GitHub 安装（装的是仓库源码，不是 npm 官网那个同名包）：
 
 ```bash
+cd ~
 npm i -g github:zhoushuai2050/model-switch
 hash -r
 msw init
@@ -20,6 +21,7 @@ msw status
 更新：
 
 ```bash
+cd ~
 npm uninstall -g model-switch
 npm cache clean --force
 hash -r
@@ -28,32 +30,7 @@ hash -r
 msw help
 ```
 
-如果安装报 `uv_cwd` / `getcwd: 无法访问父目录`，先回家目录再装：
-
-```bash
-cd ~
-npm uninstall -g model-switch
-hash -r
-npm i -g github:zhoushuai2050/model-switch
-hash -r
-msw help
-```
-
-装完没有 `msw` 命令时：
-
-```bash
-# 1. 看 npm 把可执行文件装到了哪
-npm prefix -g
-ls "$(npm prefix -g)/bin/msw"
-
-# 2. 把这个 bin 目录加进 PATH
-export PATH="$(npm prefix -g)/bin:$PATH"
-hash -r
-msw help
-
-# 3. 还不在 PATH 里就直接跑
-node "$(npm root -g)/model-switch/bin/msw.cjs" help
-```
+安装时会自动把 `msw` 放到 `node` 旁边，一般不用改 PATH。装完请 `hash -r` 或新开一个终端。
 
 也可以只克隆、不全局安装：
 
