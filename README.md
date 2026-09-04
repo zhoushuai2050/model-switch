@@ -6,23 +6,37 @@
 
 ## 快速开始
 
-需要 Node.js 22+。
+需要 **Node.js 22+**。本工具是本机 CLI，克隆后即可用，不用编译、不用注册账号。
 
 ```bash
+git clone https://github.com/zhoushuai2050/model-switch.git
 cd model-switch
+
+# 可选：装到 PATH，之后到处都能敲 msw
+npm link
+
+# 导入本机已有的 Claude / Codex / Gemini / OpenCode 配置
 node src/cli.ts init
-node src/cli.ts provider add kimi --key sk-xxx
-node src/cli.ts agent codex
-node src/cli.ts use kimi
+# 已 npm link 则：msw init
+
 node src/cli.ts status
 ```
 
-安装到 PATH：
+加一个渠道并切过去（预设或自定义中转二选一）：
 
 ```bash
-npm link
+# 预设，例如 Kimi / DeepSeek
+msw provider add kimi --key sk-xxx
+msw use kimi
+
+# 或自定义中转（Codex 用）
+msw provider add custom   --name agentrouter   --key sk-xxx   --base-url https://agentrouter.org/v1   --wire-api responses   --models gpt-5.6-sol,deepseek-v4-flash
+
+msw use agentrouter
 msw status
 ```
+
+然后**新开终端**再启动 `codex` / `claude`。在 Codex 里用 `/model` 切换该渠道下的模型。
 
 ## 终端切换
 
