@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { engine, EngineError } from './core/engine.ts';
 import { HELP, HELP_CUSTOM } from './cli/help.ts';
 import { flag, flagList, parseArgv } from './cli/parse.ts';

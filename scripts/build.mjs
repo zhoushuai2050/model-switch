@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -40,4 +40,11 @@ const result = spawnSync(process.execPath, [tsc, '-p', 'tsconfig.json'], {
 });
 if (result.status) process.exit(result.status ?? 1);
 copyWeb();
+const cli = join(root, 'dist', 'cli.js');
+if (existsSync(cli)) {
+  let code = readFileSync(cli, 'utf8');
+  if (!code.startsWith('#!')) code = '#!/usr/bin/env node\n' + code;
+  writeFileSync(cli, code);
+  chmodSync(cli, 0o755);
+}
 console.log('built dist/');

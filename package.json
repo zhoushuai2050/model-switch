@@ -4,7 +4,7 @@
   "description": "Switch agents and models for Claude Code, Codex, Gemini CLI, and OpenCode",
   "type": "module",
   "bin": {
-    "msw": "./bin/msw"
+    "msw": "./dist/cli.js"
   },
   "files": [
     "bin",

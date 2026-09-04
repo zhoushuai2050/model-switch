@@ -25,8 +25,14 @@ npm i -g https://github.com/zhoushuai2050/model-switch.git
 更新：
 
 ```bash
+npm uninstall -g model-switch
+hash -r
 npm i -g github:zhoushuai2050/model-switch
+hash -r
+msw help
 ```
+
+如果提示 `没有那个文件或目录`，多半是 bash 还记着旧路径，执行上面的 `hash -r` 后再试。
 
 也可以先克隆再跑，不必全局安装：
 

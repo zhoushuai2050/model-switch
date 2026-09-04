@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { engine, EngineError } from "./core/engine.js";
 import { HELP, HELP_CUSTOM } from "./cli/help.js";
 import { flag, flagList, parseArgv } from "./cli/parse.js";
