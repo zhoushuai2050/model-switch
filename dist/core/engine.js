@@ -803,7 +803,7 @@ function protocolsForAgent(agent) {
     if (agent === 'codex' || agent === 'opencode')
         return ['openai'];
     if (agent === 'gemini')
-        return ['gemini', 'openai'];
+        return ['gemini'];
     return ['openai', 'anthropic', 'gemini'];
 }
 function labelOf(protocol) {

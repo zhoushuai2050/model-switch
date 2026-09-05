@@ -400,6 +400,19 @@ test('ping only tests the current agent protocol', async () => {
   }
 });
 
+test('gemini only uses providers with a Gemini URL', async () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'openai-only',
+    apiKey: 'sk-x',
+    openaiUrl: 'https://example.test/v1',
+    models: ['gpt-test'],
+  });
+  const result = await engine.ping(created.id, 'gemini');
+  assert.equal(result.ok, false);
+  assert.match(String(result.error), /Gemini/);
+});
+
 test('ping fails when current agent protocol is missing', async () => {
   const engine = new Engine();
   const created = engine.addProvider({

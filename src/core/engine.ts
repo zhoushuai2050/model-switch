@@ -880,7 +880,7 @@ function modelsUrl(baseUrl: string, protocol: Protocol): string {
 function protocolsForAgent(agent?: AgentId): Protocol[] {
   if (agent === 'claude') return ['anthropic'];
   if (agent === 'codex' || agent === 'opencode') return ['openai'];
-  if (agent === 'gemini') return ['gemini', 'openai'];
+  if (agent === 'gemini') return ['gemini'];
   return ['openai', 'anthropic', 'gemini'];
 }
 

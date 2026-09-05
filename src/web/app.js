@@ -24,7 +24,7 @@ const APP_PROTOCOL = {
   claude: ['anthropic'],
   codex: ['openai'],
   opencode: ['openai'],
-  gemini: ['gemini', 'openai'],
+  gemini: ['gemini'],
 };
 
 const state = {
