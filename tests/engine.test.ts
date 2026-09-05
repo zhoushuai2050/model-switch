@@ -241,10 +241,52 @@ test('ping sends a real test message and reports the reply', async () => {
     assert.ok(result.steps.some((step) => step.id === 'openai-responses' && step.status === 'ok'));
     assert.ok(!result.steps.some((step) => step.id === 'openai-models'));
     assert.equal(requestBody?.model, 'gpt-test');
-    assert.deepEqual(requestBody?.input, [{ role: 'user', content: [{ type: 'input_text', text: '你好，今日天气' }] }]);
+    const prompt = (requestBody?.input as Array<{ content?: Array<{ text?: string }> }>)[0]?.content?.[0]?.text;
+    assert.equal(typeof prompt, 'string');
+    assert.ok((prompt || '').length > 0);
+    assert.notEqual(prompt, '你好，今日天气');
     assert.equal(requestBody?.stream, true);
     const responseStep = [...result.steps].reverse().find((step) => step.id === 'openai-responses');
     assert.match(responseStep?.detail || '', /今天天气不错/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('ping uses the same randomized prompt in the request and status text', async () => {
+  let requestPrompt = '';
+  const server = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/responses') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        input?: Array<{ content?: Array<{ text?: string }> }>;
+      };
+      requestPrompt = body.input?.[0]?.content?.[0]?.text || '';
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ output_text: '收到' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end('not found');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'random-prompt',
+      apiKey: 'sk-x',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      wireApi: 'responses',
+      models: ['gpt-test'],
+    });
+    const result = await engine.ping(created.id, 'codex');
+    assert.ok(requestPrompt.length > 0);
+    const responseStep = [...result.steps].reverse().find((step) => step.id === 'openai-responses');
+    assert.match(responseStep?.title || '', new RegExp(`「${requestPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」`));
+    assert.match(result.steps.find((step) => step.id === 'summary')?.detail || '', new RegExp(`「${requestPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」`));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import type { EnvHttpProxyAgent } from 'undici';
@@ -526,6 +526,7 @@ export class Engine {
   }
 
   async *pingSteps(providerId?: string, agentId?: AgentId): AsyncGenerator<PingStep> {
+    const pingPrompt = randomPingPrompt();
     yield { id: 'load', title: '读取供应商配置', status: 'running' };
     const requestedAgent = agentId || db.getState().currentAgent;
     const agent = requestedAgent && isAgentId(requestedAgent) ? requestedAgent : undefined;
@@ -567,13 +568,13 @@ export class Engine {
       const proto = provider.protocols[protocol];
       if (!proto) continue;
       const headers = authHeaders(protocol, provider.apiKey);
-      const posts = postProbes(protocol, proto.baseUrl, models[0], headers, proto.wireApi);
+      const posts = postProbes(protocol, proto.baseUrl, models[0], headers, proto.wireApi, pingPrompt);
       let requestRank: PingStatus | undefined;
 
       if (!posts.length) {
         yield {
           id: `${protocol}-chat`,
-          title: `${labelOf(protocol)} 发送测试消息「${PING_PROMPT}」`,
+          title: `${labelOf(protocol)} 发送测试消息「${pingPrompt}」`,
           status: 'skip',
           detail: '没有可测的模型名',
         };
@@ -639,10 +640,10 @@ export class Engine {
       status: best,
       detail:
         best === 'ok'
-          ? `已发送测试消息「${PING_PROMPT}」并收到响应`
+          ? `已发送测试消息「${pingPrompt}」并收到响应`
           : best === 'warn'
-            ? `地址可达，但测试消息「${PING_PROMPT}」未通过，请检查 API Key、协议或模型名`
-            : `发送测试消息「${PING_PROMPT}」失败，请检查地址、API Key 和模型名`,
+            ? `地址可达，但测试消息「${pingPrompt}」未通过，请检查 API Key、协议或模型名`
+            : `发送测试消息「${pingPrompt}」失败，请检查地址、API Key 和模型名`,
     };
   }
 
@@ -868,7 +869,18 @@ function uniqueId(base: string, exists: (id: string) => boolean): string {
   return `${base}-${i}`;
 }
 
-const PING_PROMPT = '你好，今日天气';
+const PING_PROMPTS = [
+  '你好，请用一句话介绍你自己。',
+  '请用中文回答：1+1 等于多少？',
+  '请用不超过 20 个字解释什么是 API。',
+  '请给我一个简短的学习建议。',
+  '请用一句话描述春天。',
+  '请返回一个简短的 JSON：{"ok":true}',
+] as const;
+
+function randomPingPrompt(): string {
+  return PING_PROMPTS[randomInt(PING_PROMPTS.length)];
+}
 
 function modelsUrl(baseUrl: string, protocol: Protocol): string {
   const trimmed = baseUrl.replace(/\/$/, '');
@@ -909,47 +921,54 @@ function apiV1Root(baseUrl: string): string {
   return baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
 }
 
-function postProbes(protocol: Protocol, baseUrl: string, model: string | undefined, headers: Record<string, string>, wireApi?: string) {
+function postProbes(
+  protocol: Protocol,
+  baseUrl: string,
+  model: string | undefined,
+  headers: Record<string, string>,
+  wireApi: string | undefined,
+  pingPrompt: string,
+) {
   if (!model) return [];
   const trimmed = baseUrl.replace(/\/$/, '');
   if (protocol === 'anthropic') {
     return [{
       id: 'anthropic-messages',
-      title: `Anthropic 发送测试消息「${PING_PROMPT}」`,
+      title: `Anthropic 发送测试消息「${pingPrompt}」`,
       url: `${apiV1Root(trimmed)}/messages`,
       headers,
-      body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: PING_PROMPT }] }),
+      body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: pingPrompt }] }),
     }];
   }
   if (protocol === 'gemini') {
     const root = trimmed.endsWith('/v1') || trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`;
     return [{
       id: 'gemini-generate',
-      title: `Gemini 发送测试消息「${PING_PROMPT}」`,
+      title: `Gemini 发送测试消息「${pingPrompt}」`,
       url: `${root}/models/${encodeURIComponent(model)}:generateContent`,
       headers,
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: PING_PROMPT }] }] }),
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: pingPrompt }] }] }),
     }];
   }
   const openaiRoot = apiV1Root(trimmed);
   const streamHeaders = { ...headers, accept: 'text/event-stream' };
   const chat = {
     id: 'openai-chat',
-    title: `OpenAI Chat Completions 测试消息「${PING_PROMPT}」`,
+    title: `OpenAI Chat Completions 测试消息「${pingPrompt}」`,
     url: `${openaiRoot}/chat/completions`,
     headers: streamHeaders,
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: PING_PROMPT }], max_tokens: 16, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: pingPrompt }], max_tokens: 16, stream: true }),
   };
   const responses = {
     id: 'openai-responses',
-    title: `OpenAI Responses 测试消息「${PING_PROMPT}」`,
+    title: `OpenAI Responses 测试消息「${pingPrompt}」`,
     url: `${openaiRoot}/responses`,
     headers: streamHeaders,
     // Use the same message-array shape and streaming mode as Codex. Some
     // OpenAI-compatible relays only implement this wire format reliably.
     body: JSON.stringify({
       model,
-      input: [{ role: 'user', content: [{ type: 'input_text', text: PING_PROMPT }] }],
+      input: [{ role: 'user', content: [{ type: 'input_text', text: pingPrompt }] }],
       max_output_tokens: 16,
       store: false,
       stream: true,
