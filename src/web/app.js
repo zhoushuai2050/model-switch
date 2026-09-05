@@ -6,6 +6,14 @@ const APPS = [
   { id: 'opencode', name: 'OpenCode' },
 ];
 
+const THEMES = [
+  { id: 'midnight', name: '午夜蓝', color: '#3b82f6' },
+  { id: 'paper', name: '纸张白', color: '#2563eb' },
+  { id: 'ocean', name: '深海青', color: '#14b8a6' },
+  { id: 'plum', name: '暮紫', color: '#a78bfa' },
+  { id: 'forest', name: '松林绿', color: '#34d399' },
+];
+
 const PROTOCOL_LABELS = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
@@ -29,7 +37,26 @@ const state = {
   presets: [],
   models: [],
   mcp: [],
+  theme: localStorage.getItem('msw-theme') || 'midnight',
 };
+
+function applyTheme(themeId, persist = true) {
+  const theme = THEMES.some((item) => item.id === themeId) ? themeId : 'midnight';
+  state.theme = theme;
+  document.documentElement.dataset.theme = theme;
+  if (persist) localStorage.setItem('msw-theme', theme);
+  renderThemeOptions();
+}
+
+function renderThemeOptions() {
+  const menu = $('#theme-options');
+  if (!menu) return;
+  menu.innerHTML = THEMES.map((theme) => `<button class="theme-option ${state.theme === theme.id ? 'active' : ''}" type="button" data-theme-id="${theme.id}">
+    <span class="theme-swatch" style="--swatch:${theme.color}"></span>
+    <span>${theme.name}</span>
+    ${state.theme === theme.id ? '<span class="theme-check">✓</span>' : ''}
+  </button>`).join('');
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -144,6 +171,8 @@ function renderStatus() {
     <span>${live?.model || '未配置'}</span>
     <span>${live?.providerLabel || live?.bin || (live?.installed ? '已安装' : '未安装')}</span>
     <span>${available} 个可用</span>`;
+  const configButton = $('#btn-agent-config');
+  if (configButton) configButton.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.7"/><path d="M7 8h10M7 12h7M7 16h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>查看 ${escapeHtml(appName())} 配置`;
 }
 
 function renderProviders() {
@@ -319,6 +348,38 @@ function protocolOf(provider, name) {
   return provider?.protocols?.[name]?.baseUrl || '';
 }
 
+async function openAgentConfigModal() {
+  const agentId = state.app;
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML = `<div class="dialog config-dialog">
+    <h2>查看并编辑 ${escapeHtml(appName(agentId))} 配置</h2>
+    <div class="config-loading">正在读取配置文件…</div>
+  </div>`;
+  try {
+    const config = await api(`/api/agents/${encodeURIComponent(agentId)}/config`);
+    $('#modal').innerHTML = `<div class="dialog config-dialog">
+      <div class="config-heading">
+        <div>
+          <h2>编辑 ${escapeHtml(config.agentName)} 配置</h2>
+          <div class="meta config-path">${escapeHtml(config.path)}</div>
+        </div>
+        <span class="config-state ${config.exists ? 'exists' : 'missing'}">${config.exists ? '已存在' : '文件不存在，将新建'}</span>
+      </div>
+      <p class="config-tip">保存前会自动备份当前文件。保存后重新启动 ${escapeHtml(config.agentName)} 才会读取新配置。</p>
+      <form id="agent-config-form" data-agent="${escapeHtml(config.agentId)}">
+        <textarea name="content" class="config-editor" spellcheck="false">${escapeHtml(config.content)}</textarea>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="btn-cancel">取消</button>
+          <button class="btn primary" type="submit">保存配置</button>
+        </div>
+      </form>
+    </div>`;
+  } catch (error) {
+    closeModal();
+    toast(error.message || String(error), true);
+  }
+}
+
 async function openProviderModal(providerId) {
   const presets = [{ id: 'custom', name: '自定义中转' }, ...state.presets];
   let provider = null;
@@ -358,6 +419,8 @@ async function openProviderModal(providerId) {
   </div>`;
 }
 
+applyTheme(state.theme, false);
+
 async function run(action, success) {
   try {
     await action();
@@ -372,6 +435,24 @@ document.body.addEventListener('click', async (event) => {
   const t = event.target.closest('button, [data-app], [data-view]');
   if (!t) {
     if (event.target.id === 'modal') closeModal();
+    if (!event.target.closest('#theme-picker')) $('#theme-menu')?.classList.add('hidden');
+    return;
+  }
+  if (t.dataset.themeId) {
+    applyTheme(t.dataset.themeId);
+    $('#theme-menu').classList.add('hidden');
+    $('#btn-theme').setAttribute('aria-expanded', 'false');
+    toast(`已切换到${THEMES.find((item) => item.id === state.theme)?.name || '新主题'}`);
+    return;
+  }
+  if (t.id === 'btn-theme') {
+    const menu = $('#theme-menu');
+    const open = menu.classList.toggle('hidden');
+    t.setAttribute('aria-expanded', String(!open));
+    return;
+  }
+  if (t.id === 'btn-agent-config') {
+    openAgentConfigModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
   if (t.dataset.app) {
@@ -439,6 +520,16 @@ document.body.addEventListener('submit', async (event) => {
   if (!(form instanceof HTMLFormElement)) return;
   const data = Object.fromEntries(new FormData(form).entries());
   try {
+    if (form.id === 'agent-config-form') {
+      await api(`/api/agents/${encodeURIComponent(form.dataset.agent)}/config`, {
+        method: 'PUT',
+        body: { content: String(data.content || '') },
+      });
+      closeModal();
+      toast('Agent 配置已保存，并已创建备份');
+      await refresh();
+      return;
+    }
     if (form.id === 'add-provider' || form.id === 'edit-provider') {
       const body = {
         preset: data.preset === 'custom' ? undefined : data.preset,

@@ -69,12 +69,23 @@ trust_level = "trusted"
   assert.equal(auth.OPENAI_API_KEY, 'sk-kimi');
 });
 
+test('new providers use random UUID IDs while names remain usable targets', () => {
+  const engine = new Engine();
+  const first = engine.addProvider({ name: 'relay', apiKey: 'sk-a', openaiUrl: 'https://a.example/v1', models: ['a'] });
+  const second = engine.addProvider({ name: 'relay', apiKey: 'sk-b', openaiUrl: 'https://b.example/v1', models: ['b'] });
+  assert.match(first.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.match(second.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.notEqual(first.id, second.id);
+  assert.equal(engine.getProvider(first.id).provider.name, 'relay');
+});
+
 test('claude adapter writes anthropic env', () => {
   const engine = new Engine();
-  engine.addProvider({
+  const kimi = engine.addProvider({
     preset: 'kimi',
     apiKey: 'sk-kimi',
   });
+  assert.match(kimi.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   engine.use('claude:kimi');
   const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
   assert.equal(settings.env.ANTHROPIC_AUTH_TOKEN, 'sk-kimi');

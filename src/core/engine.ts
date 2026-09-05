@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { basename } from 'node:path';
+import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici';
 import { adapters, getAdapter } from '../adapters/index.ts';
 import type { LaunchSpec } from '../adapters/types.ts';
 import * as db from './db.ts';
+import { atomicWrite, backupFiles, readText } from './fsutil.ts';
 import { getPreset, PRESETS, type Preset } from './presets.ts';
 import {
   AGENT_IDS,
@@ -163,7 +166,9 @@ export class Engine {
   }): Provider {
     const preset = input.preset ? getPreset(input.preset) : undefined;
     const baseName = input.name || preset?.name || input.preset || 'custom';
-    const id = uniqueId(input.id || (preset ? preset.id : slug(baseName)), (value) => Boolean(db.getProvider(value)));
+    // Provider IDs are storage identifiers. Keep the human-readable name for
+    // CLI/UI lookup, but never derive the ID from it.
+    const id = randomUUID();
     const protocols: Provider['protocols'] = preset ? { ...preset.protocols } : {};
     if (input.openaiUrl) {
       protocols.openai = {
@@ -208,7 +213,7 @@ export class Engine {
         agentHint: model.agentHint || 'any',
       });
     }
-    this.ensureProviderProfile(provider, models[0]?.modelId || 'default');
+    this.ensureProviderProfile(provider, models[0]?.modelId || 'default', input.preset);
     return provider;
   }
 
@@ -279,8 +284,56 @@ export class Engine {
   }
 
   deleteProvider(id: string): void {
-    if (!db.getProvider(id)) throw new EngineError(`Unknown provider: ${id}`);
-    db.deleteProvider(id);
+    const provider = findProvider(id);
+    if (!provider) throw new EngineError(`Unknown provider: ${id}`);
+    db.deleteProvider(provider.id);
+  }
+
+  getAgentConfig(agentId: string): {
+    agentId: AgentId;
+    agentName: string;
+    fileName: string;
+    path: string;
+    exists: boolean;
+    content: string;
+  } {
+    const agent = requireAgent(agentId);
+    const adapter = getAdapter(agent);
+    const path = adapter.liveFiles()[0];
+    if (!path) throw new EngineError(`No configuration file declared for ${agent}`);
+    const content = readText(path);
+    return {
+      agentId: agent,
+      agentName: adapter.displayName,
+      fileName: basename(path),
+      path,
+      exists: content !== null,
+      content: content ?? '',
+    };
+  }
+
+  saveAgentConfig(agentId: string, content: string): {
+    agentId: AgentId;
+    agentName: string;
+    fileName: string;
+    path: string;
+    exists: boolean;
+    content: string;
+    backup: string;
+  } {
+    if (typeof content !== 'string') throw new EngineError('Configuration content must be text');
+    const current = this.getAgentConfig(agentId);
+    if (current.fileName.endsWith('.json')) {
+      try {
+        JSON.parse(content);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new EngineError(`Invalid JSON: ${detail}`);
+      }
+    }
+    const backup = backupFiles(current.agentId, [current.path]);
+    atomicWrite(current.path, content);
+    return { ...this.getAgentConfig(current.agentId), backup };
   }
 
   addProfile(input: { id?: string; name: string; description?: string; defaultAgent?: AgentId }): Profile {
@@ -302,12 +355,13 @@ export class Engine {
   bind(profileId: string, agentId: AgentId, providerId: string, modelId: string): ProfileBinding {
     const profile = db.getProfile(profileId);
     if (!profile) throw new EngineError(`Unknown profile: ${profileId}`);
-    if (!db.getProvider(providerId)) throw new EngineError(`Unknown provider: ${providerId}`);
+    const provider = findProvider(providerId);
+    if (!provider) throw new EngineError(`Unknown provider: ${providerId}`);
     const binding: ProfileBinding = {
       id: randomUUID(),
       profileId,
       agentId,
-      providerId,
+      providerId: provider.id,
       modelId,
     };
     db.upsertBinding(binding);
@@ -600,10 +654,13 @@ export class Engine {
     return `${agent}/${model}`;
   }
 
-  private ensureProviderProfile(provider: Provider, model: string): void {
-    if (!db.getProfile(provider.id)) {
+  private ensureProviderProfile(provider: Provider, model: string, preferredId?: string): void {
+    const existing = db.listProfiles().find((item) => item.bindings.some((binding) => binding.providerId === provider.id));
+    const profileBaseId = preferredId || provider.name;
+    const profileId = existing?.id || uniqueId(slug(profileBaseId), (value) => Boolean(db.getProfile(value)));
+    if (!existing) {
       db.upsertProfile({
-        id: provider.id,
+        id: profileId,
         name: provider.name,
         description: `Auto profile for ${provider.name}`,
         sortIndex: db.listProfiles().length,
@@ -616,7 +673,7 @@ export class Engine {
       if (!protocolFor(provider, adapter.protocol)) continue;
       db.upsertBinding({
         id: randomUUID(),
-        profileId: provider.id,
+        profileId,
         agentId: adapter.id,
         providerId: provider.id,
         modelId: model,
@@ -771,6 +828,10 @@ function parseTarget(target: string, fallbackAgent?: AgentId): { kind: 'profile'
     db.getProvider(query) || db.listProviders().find((item) => item.name.toLowerCase() === query.toLowerCase());
   if (provider) return { kind: 'provider', id: provider.id, agent: agent || fallbackAgent };
   return { kind: 'model', id: query, agent: agent || fallbackAgent };
+}
+
+function findProvider(query: string): Provider | undefined {
+  return db.getProvider(query) || db.listProviders().find((item) => item.name.toLowerCase() === query.toLowerCase());
 }
 
 function requireAgent(agentId?: string): AgentId {
@@ -956,14 +1017,29 @@ function classify(status?: number): PingStatus {
   return 'fail';
 }
 
+let proxyAgent: EnvHttpProxyAgent | undefined;
+let proxyEnvSignature = '';
+
+function httpProxyAgent(): EnvHttpProxyAgent {
+  const signature = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']
+    .map((key) => `${key}=${process.env[key] || ''}`)
+    .join('\n');
+  if (!proxyAgent || signature !== proxyEnvSignature) {
+    proxyAgent = new EnvHttpProxyAgent();
+    proxyEnvSignature = signature;
+  }
+  return proxyAgent;
+}
+
 async function probe(url: string, init: { method: string; headers: Record<string, string>; body?: string; showResponse?: boolean }) {
   const started = Date.now();
   try {
-    const res = await fetch(url, {
+    const res = await undiciFetch(url, {
       method: init.method,
       headers: init.headers,
       body: init.body,
       signal: AbortSignal.timeout(12000),
+      dispatcher: httpProxyAgent(),
     });
     const text = (await res.text()).slice(0, 280).replace(/\s+/g, ' ').trim();
     const ms = Date.now() - started;

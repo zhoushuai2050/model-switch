@@ -47,6 +47,15 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const path = url.pathname.replace(/\/$/, '') || '/';
   if (req.method === 'GET' && path === '/api/status') return send(res, 200, engine.status());
+  if (req.method === 'GET' && path.startsWith('/api/agents/') && path.endsWith('/config')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    return send(res, 200, engine.getAgentConfig(id));
+  }
+  if (req.method === 'PUT' && path.startsWith('/api/agents/') && path.endsWith('/config')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    const body = await readBody(req);
+    return send(res, 200, engine.saveAgentConfig(id, String(body.content ?? '')));
+  }
   if (req.method === 'GET' && path === '/api/providers') return send(res, 200, engine.listProviders());
   if (req.method === 'GET' && path.startsWith('/api/providers/')) {
     const id = decodeURIComponent(path.split('/')[3] || '');
