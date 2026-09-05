@@ -932,21 +932,32 @@ function postProbes(protocol: Protocol, baseUrl: string, model: string | undefin
     }];
   }
   const openaiRoot = apiV1Root(trimmed);
+  const streamHeaders = { ...headers, accept: 'text/event-stream' };
   const chat = {
     id: 'openai-chat',
     title: `OpenAI Chat Completions 测试消息「${PING_PROMPT}」`,
     url: `${openaiRoot}/chat/completions`,
-    headers,
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: PING_PROMPT }], max_tokens: 16, stream: false }),
+    headers: streamHeaders,
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: PING_PROMPT }], max_tokens: 16, stream: true }),
   };
   const responses = {
     id: 'openai-responses',
     title: `OpenAI Responses 测试消息「${PING_PROMPT}」`,
     url: `${openaiRoot}/responses`,
-    headers,
-    body: JSON.stringify({ model, input: PING_PROMPT, max_output_tokens: 16, store: false }),
+    headers: streamHeaders,
+    // Use the same message-array shape and streaming mode as Codex. Some
+    // OpenAI-compatible relays only implement this wire format reliably.
+    body: JSON.stringify({
+      model,
+      input: [{ role: 'user', content: [{ type: 'input_text', text: PING_PROMPT }] }],
+      max_output_tokens: 16,
+      store: false,
+      stream: true,
+    }),
   };
-  return wireApi === 'responses' ? [responses, chat] : [chat, responses];
+  if (wireApi === 'responses') return [responses];
+  if (wireApi === 'chat') return [chat];
+  return [responses, chat];
 }
 
 function jsonValue(text: string): unknown {
@@ -1074,15 +1085,38 @@ async function loadUndici(): Promise<UndiciModule | undefined> {
   return undiciLoad;
 }
 
-async function request(url: string, init: { method: string; headers: Record<string, string>; body?: string }) {
-  if (!hasProxyEnvironment()) {
-    return globalThis.fetch(url, {
-      method: init.method,
-      headers: init.headers,
-      body: init.body,
-      signal: AbortSignal.timeout(12000),
-    });
-  }
+const CONNECT_TIMEOUT_MS = 12_000;
+const MESSAGE_TIMEOUT_MS = 45_000;
+
+type RequestInit = { method: string; headers: Record<string, string>; body?: string; timeoutMs: number };
+
+type ProbeBody = {
+  text: string;
+  streamText?: string;
+  streamError?: string;
+};
+
+type ProbeReader = {
+  read(): Promise<{ done: boolean; value?: Uint8Array }>;
+  cancel(reason?: unknown): Promise<void>;
+  releaseLock(): void;
+};
+
+type ProbeResponse = {
+  headers: { get(name: string): string | null };
+  body: { getReader(): ProbeReader } | null;
+  text(): Promise<string>;
+  status: number;
+};
+
+async function request(url: string, init: RequestInit): Promise<ProbeResponse> {
+  const fetchInit = {
+    method: init.method,
+    headers: init.headers,
+    body: init.body,
+    signal: AbortSignal.timeout(init.timeoutMs),
+  };
+  if (!hasProxyEnvironment()) return globalThis.fetch(url, fetchInit);
 
   const undici = await loadUndici();
   if (!undici) {
@@ -1091,24 +1125,94 @@ async function request(url: string, init: { method: string; headers: Record<stri
     );
   }
   return undici.fetch(url, {
-    method: init.method,
-    headers: init.headers,
-    body: init.body,
-    signal: AbortSignal.timeout(12000),
+    ...fetchInit,
     dispatcher: httpProxyAgent(undici.EnvHttpProxyAgent),
   });
+}
+
+async function readProbeBody(res: ProbeResponse): Promise<ProbeBody> {
+  const contentType = res.headers.get('content-type')?.toLowerCase() || '';
+  if (!res.body || !contentType.includes('text/event-stream')) {
+    return { text: await res.text() };
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let raw = '';
+  let streamText = '';
+  let streamError: string | undefined;
+  let completed = false;
+  try {
+    while (!completed) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      const part = decoder.decode(chunk.value, { stream: true });
+      raw += part;
+      buffer += part;
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() || '';
+      for (const event of events) {
+        const data = event
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('\n');
+        if (!data) continue;
+        if (data === '[DONE]') {
+          completed = true;
+          break;
+        }
+        const parsed = jsonValue(data);
+        const root = asRecord(parsed);
+        if (!root) continue;
+        const type = asString(root.type) || '';
+        if (type === 'response.output_text.delta') {
+          streamText += asString(root.delta) || '';
+        } else if (type === 'response.output_text.done') {
+          streamText = asString(root.text) || streamText;
+        } else if (type === 'response.completed' || type === 'response.incomplete') {
+          completed = true;
+        } else if (type === 'response.failed' || type === 'error') {
+          streamError = jsonMessage(data) || asString(root.message) || '流式请求失败';
+          completed = true;
+        }
+
+        const choices = Array.isArray(root.choices) ? root.choices : [];
+        const choice = asRecord(choices[0]);
+        const delta = asRecord(choice?.delta);
+        streamText += textContent(delta?.content) || '';
+        if (choice?.finish_reason) completed = true;
+
+        if (!streamText) {
+          streamText = responseText(data) || '';
+        }
+      }
+    }
+  } finally {
+    // Stop reading as soon as the provider signals completion. Some relays keep
+    // the SSE connection open for a short time after the final event.
+    await reader.cancel().catch(() => undefined);
+  }
+  return { text: raw, streamText: streamText || undefined, streamError };
 }
 
 async function probe(url: string, init: { method: string; headers: Record<string, string>; body?: string; showResponse?: boolean }) {
   const started = Date.now();
   try {
-    const res = await request(url, init);
-    const text = (await res.text()).slice(0, 280).replace(/\s+/g, ' ').trim();
+    const res = await request(url, {
+      ...init,
+      timeoutMs: init.method === 'POST' ? MESSAGE_TIMEOUT_MS : CONNECT_TIMEOUT_MS,
+    });
+    const body = await readProbeBody(res);
+    const text = body.text.slice(0, 280).replace(/\s+/g, ' ').trim();
     const ms = Date.now() - started;
     const rank = classify(res.status);
-    const message = jsonMessage(text);
+    const message = body.streamError || jsonMessage(text);
     const parsed = jsonValue(text);
-    const reply = init.showResponse ? clip(responseText(text) || (parsed === undefined ? text : '')) : undefined;
+    const reply = init.showResponse
+      ? clip(body.streamText || responseText(text) || (parsed === undefined ? text : ''))
+      : undefined;
     let detail = message || text || `HTTP ${res.status}`;
     if (rank === 'warn' && (res.status === 401 || res.status === 403)) {
       detail = `服务可达，鉴权失败：${message || 'API Key 无效'}`;

@@ -241,9 +241,46 @@ test('ping sends a real test message and reports the reply', async () => {
     assert.ok(result.steps.some((step) => step.id === 'openai-responses' && step.status === 'ok'));
     assert.ok(!result.steps.some((step) => step.id === 'openai-models'));
     assert.equal(requestBody?.model, 'gpt-test');
-    assert.equal(requestBody?.input, '你好，今日天气');
+    assert.deepEqual(requestBody?.input, [{ role: 'user', content: [{ type: 'input_text', text: '你好，今日天气' }] }]);
+    assert.equal(requestBody?.stream, true);
     const responseStep = [...result.steps].reverse().find((step) => step.id === 'openai-responses');
     assert.match(responseStep?.detail || '', /今天天气不错/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('ping reads a streaming Responses reply before the connection closes', async () => {
+  const server = createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/responses') {
+      res.writeHead(404);
+      res.end('not found');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write('event: response.output_text.delta\n');
+    res.write('data: {"type":"response.output_text.delta","delta":"流"}\n\n');
+    res.write('event: response.output_text.delta\n');
+    res.write('data: {"type":"response.output_text.delta","delta":"式成功"}\n\n');
+    res.write('event: response.completed\n');
+    res.write('data: {"type":"response.completed"}\n\n');
+    setTimeout(() => res.end(), 1000);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'streaming',
+      apiKey: 'sk-x',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      wireApi: 'responses',
+      models: ['gpt-test'],
+    });
+    const result = await engine.ping(created.id, 'codex');
+    assert.equal(result.ok, true);
+    assert.match([...result.steps].reverse().find((step) => step.id === 'openai-responses')?.detail || '', /流式成功/);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
