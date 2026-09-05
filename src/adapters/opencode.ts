@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from '../core/fsutil.ts';
@@ -44,7 +45,7 @@ export const opencodeAdapter: Adapter = {
       | { options?: { baseURL?: string; apiKey?: string }; name?: string }
       | undefined;
     const provider: Provider = {
-      id: provId ? `imported-opencode-${slug(provId)}` : 'imported-opencode',
+      id: randomUUID(),
       name: entry?.name || 'Imported OpenCode',
       apiKey: entry?.options?.apiKey || '',
       protocols: {

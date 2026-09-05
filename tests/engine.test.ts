@@ -51,6 +51,10 @@ trust_level = "trusted"
   const imported = engine.init();
   assert.equal(imported.imported.length, 1);
   assert.equal(imported.imported[0].agentId, 'codex');
+  assert.match(imported.imported[0].providerId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  const repeated = engine.init();
+  assert.equal(repeated.imported.length, 0);
+  assert.equal(engine.listProviders().length, 1);
 
   engine.addProvider({
     preset: 'kimi',

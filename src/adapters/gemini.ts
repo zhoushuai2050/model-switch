@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWrite, backupFiles, readJson, readText, writeJson } from '../core/fsutil.ts';
@@ -47,7 +48,7 @@ export const geminiAdapter: Adapter = {
     const model = env.GEMINI_MODEL || settings.model || '';
     if (!apiKey && !baseUrl && !model) return null;
     const provider: Provider = {
-      id: 'imported-gemini',
+      id: randomUUID(),
       name: 'Imported Gemini',
       apiKey,
       protocols: {

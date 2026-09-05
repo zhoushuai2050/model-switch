@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, readText, writeJson, atomicWrite } from '../core/fsutil.ts';
@@ -123,7 +124,7 @@ export const codexAdapter: Adapter = {
     if (!model && !providerId && !baseUrl) return null;
     const wire = table && typeof table.wire_api === 'string' ? table.wire_api : 'responses';
     const provider: Provider = {
-      id: providerId ? `imported-codex-${slug(providerId)}` : 'imported-codex',
+      id: randomUUID(),
       name: String(table?.name || providerId || 'Imported Codex'),
       apiKey,
       protocols: {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from "../core/fsutil.js";
@@ -50,7 +51,7 @@ export const claudeAdapter = {
             return null;
         const authMode = env.ANTHROPIC_API_KEY && !env.ANTHROPIC_AUTH_TOKEN ? 'api_key' : 'auth_token';
         const provider = {
-            id: 'imported-claude',
+            id: randomUUID(),
             name: 'Imported Claude',
             apiKey,
             protocols: {

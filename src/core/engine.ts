@@ -104,7 +104,7 @@ export class Engine {
         skipped.push({ agentId: adapter.id, reason: 'no live config' });
         continue;
       }
-      if (db.getProvider(live.provider.id)) {
+      if (db.getProvider(live.provider.id) || findImportedProvider(adapter.id, live.provider)) {
         skipped.push({ agentId: adapter.id, reason: 'already imported' });
         continue;
       }
@@ -680,6 +680,23 @@ export class Engine {
       });
     }
   }
+}
+
+function findImportedProvider(agentId: AgentId, candidate: Provider): Provider | undefined {
+  const adapter = getAdapter(agentId);
+  const candidateProtocol = protocolFor(candidate, adapter.protocol);
+  if (!candidateProtocol) return undefined;
+  const candidateName = candidate.name.trim().toLowerCase();
+  const candidateBaseUrl = candidateProtocol.baseUrl.replace(/\/$/, '');
+  for (const profile of db.listProfiles()) {
+    const binding = profile.bindings.find((item) => item.agentId === agentId);
+    if (!binding) continue;
+    const existing = db.getProvider(binding.providerId);
+    if (!existing || existing.name.trim().toLowerCase() !== candidateName) continue;
+    const existingProtocol = protocolFor(existing, adapter.protocol);
+    if (existingProtocol?.baseUrl.replace(/\/$/, '') === candidateBaseUrl) return existing;
+  }
+  return undefined;
 }
 
 function agentPresent(agentId: AgentId): boolean {
