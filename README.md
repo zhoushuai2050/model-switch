@@ -14,7 +14,9 @@
 cd ~
 git clone https://github.com/zhoushuai2050/model-switch.git ~/.model-switch/app
 cd ~/.model-switch/app
-npm i -g . --omit=dev --ignore-scripts
+npm i -g . --omit=dev --ignore-scripts \
+  --registry=https://registry.npmjs.org/ \
+  --replace-registry-host=never
 hash -r
 msw init
 msw status
@@ -25,7 +27,9 @@ msw status
 ```bash
 cd ~/.model-switch/app
 git pull
-npm i -g . --omit=dev --ignore-scripts
+npm i -g . --omit=dev --ignore-scripts \
+  --registry=https://registry.npmjs.org/ \
+  --replace-registry-host=never
 hash -r
 msw help
 ```
@@ -34,7 +38,9 @@ msw help
 
 ```bash
 cd ~/.model-switch/app
-npm install --omit=dev --ignore-scripts
+npm install --omit=dev --ignore-scripts \
+  --registry=https://registry.npmjs.org/ \
+  --replace-registry-host=never
 ```
 
 其中 `undici` 用于在设置 `HTTP_PROXY` / `HTTPS_PROXY` 时让管理台测通请求复用代理。未配置代理时，程序也可以回退到 Node.js 内置 `fetch`；配置了代理则需要确保依赖已经安装。
@@ -44,7 +50,9 @@ npm install --omit=dev --ignore-scripts
 ```bash
 git clone https://github.com/zhoushuai2050/model-switch.git
 cd model-switch
-npm install
+npm install \
+  --registry=https://registry.npmjs.org/ \
+  --replace-registry-host=never
 node dist/cli.js init
 ```
 
