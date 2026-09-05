@@ -189,8 +189,17 @@ test('updateProvider keeps key when blank and replaces models', () => {
   assert.deepEqual(models.sort(), ['deepseek-v4-flash', 'gpt-5.6-sol']);
 });
 
-test('ping reports successful models endpoint', async () => {
-  const server = createServer((req, res) => {
+test('ping sends a real test message and reports the reply', async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const server = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/responses') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ output_text: '今天天气不错' }));
+      return;
+    }
     if (req.url === '/v1/models') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: 'gpt-test' }] }));
@@ -213,7 +222,43 @@ test('ping reports successful models endpoint', async () => {
     const result = await engine.ping(created.id);
     assert.equal(result.ok, true);
     assert.equal(result.status, 200);
-    assert.ok(result.steps.some((step) => step.id === 'openai-models' && step.status === 'ok'));
+    assert.ok(result.steps.some((step) => step.id === 'openai-responses' && step.status === 'ok'));
+    assert.ok(!result.steps.some((step) => step.id === 'openai-models'));
+    assert.equal(requestBody?.model, 'gpt-test');
+    assert.equal(requestBody?.input, '你好，今日天气');
+    const responseStep = [...result.steps].reverse().find((step) => step.id === 'openai-responses');
+    assert.match(responseStep?.detail || '', /今天天气不错/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('ping succeeds from the real message request when models endpoint is unavailable', async () => {
+  const server = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/responses') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ output_text: '测试成功' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end('not supported');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'chat-only',
+      apiKey: 'sk-x',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      models: ['gpt-test'],
+    });
+    const result = await engine.ping(created.id, 'codex');
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 200);
+    assert.equal([...result.steps].reverse().find((step) => step.id === 'openai-responses')?.status, 'ok');
+    assert.ok(!result.steps.some((step) => step.id === 'openai-models'));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
@@ -269,14 +314,14 @@ test('ping only tests the current agent protocol', async () => {
     hits.length = 0;
     const codex = await engine.ping(created.id, 'codex');
     assert.equal(codex.ok, true);
-    assert.ok(codex.steps.some((step) => step.id === 'openai-models' && step.status === 'ok'));
-    assert.ok(!codex.steps.some((step) => step.id === 'anthropic-models' || step.id === 'gemini-models'));
+    assert.ok(codex.steps.some((step) => step.id === 'openai-responses' && step.status === 'ok'));
+    assert.ok(!codex.steps.some((step) => step.id === 'anthropic-messages' || step.id === 'gemini-generate'));
 
     hits.length = 0;
     const claude = await engine.ping(created.id, 'claude');
     assert.equal(claude.ok, true);
-    assert.ok(claude.steps.some((step) => step.id === 'anthropic-models' && step.status === 'ok'));
-    assert.ok(!claude.steps.some((step) => step.id === 'openai-models' || step.id === 'gemini-models'));
+    assert.ok(claude.steps.some((step) => step.id === 'anthropic-messages' && step.status === 'ok'));
+    assert.ok(!claude.steps.some((step) => step.id === 'openai-responses' || step.id === 'openai-chat' || step.id === 'gemini-generate'));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

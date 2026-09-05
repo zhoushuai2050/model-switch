@@ -80,7 +80,7 @@ export PS1='$(msw prompt 2>/dev/null) '"$PS1"
 msw serve --port 8787
 ```
 
-浏览器打开本机页面：导入现有配置、添加供应商、一键切换 Profile、测通、同步 MCP。
+浏览器打开本机页面：导入现有配置、添加供应商、一键切换 Profile、测通、同步 MCP。测通会使用当前 Agent 的协议和第一个配置模型，实际发送 `你好，今日天气`，并显示接口返回内容；这会消耗少量上游 Token。
 
 顶部切换 Claude / Codex / Gemini / OpenCode 后，只显示当前 Agent 能用的供应商卡片。卡片上的 OpenAI / Anthropic / Gemini 标签表示已配置对应地址，测通也只测当前 Agent 的协议。
 
@@ -107,7 +107,7 @@ msw profile add work
 msw profile bind work --agent codex --provider kimi --model kimi-k2.5
 msw mcp add --name filesystem --command npx --args -y,@modelcontextprotocol/server-filesystem
 msw mcp sync
-msw ping kimi
+msw ping kimi           # 用“你好，今日天气”实际发一条测试消息
 msw doctor
 msw help custom
 ```

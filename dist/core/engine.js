@@ -395,22 +395,27 @@ export class Engine {
         for await (const step of this.pingSteps(providerId, agentId))
             steps.push(step);
         const summary = [...steps].reverse().find((item) => item.id === 'summary');
+        const test = [...steps].reverse().find((item) => isTestStep(item) && item.httpStatus);
         const http = [...steps].reverse().find((item) => item.httpStatus);
         return {
             ok: summary?.status === 'ok' || summary?.status === 'warn',
-            status: http?.httpStatus,
-            url: http?.url || '',
+            status: test?.httpStatus ?? http?.httpStatus,
+            url: test?.url || http?.url || '',
             error: summary?.status === 'fail' ? summary.detail : undefined,
             steps,
         };
     }
     async *pingSteps(providerId, agentId) {
         yield { id: 'load', title: '读取供应商配置', status: 'running' };
+        const requestedAgent = agentId || db.getState().currentAgent;
+        const agent = requestedAgent && isAgentId(requestedAgent) ? requestedAgent : undefined;
         const provider = providerId
             ? db.getProvider(providerId) || db.listProviders().find((item) => item.name.toLowerCase() === providerId.toLowerCase())
-            : payloadForAgent(requireAgent(agentId || db.getState().currentAgent)).provider;
+            : payloadForAgent(requireAgent(requestedAgent)).provider;
         if (!provider) {
-            yield { id: 'load', title: '读取供应商配置', status: 'fail', detail: '找不到供应商' };
+            const detail = '找不到供应商';
+            yield { id: 'load', title: '读取供应商配置', status: 'fail', detail };
+            yield { id: 'summary', title: '测通失败', status: 'fail', detail };
             return;
         }
         const models = db.modelsForProvider(provider.id).map((item) => item.modelId);
@@ -420,7 +425,6 @@ export class Engine {
             status: 'ok',
             detail: `${provider.name} · ${provider.apiKey ? '已配置 Key' : '未配置 Key'} · 模型 ${models.join(', ') || '无'}`,
         };
-        const agent = agentId && isAgentId(agentId) ? agentId : undefined;
         const wanted = protocolsForAgent(agent);
         const protocols = wanted.filter((item) => provider.protocols[item]?.baseUrl);
         if (!protocols.length) {
@@ -442,43 +446,71 @@ export class Engine {
             if (!proto)
                 continue;
             const headers = authHeaders(protocol, provider.apiKey);
-            const getUrl = modelsUrl(proto.baseUrl, protocol);
-            yield { id: `${protocol}-models`, title: `${labelOf(protocol)} 拉取模型列表`, status: 'running', method: 'GET', url: getUrl };
-            const listed = await probe(getUrl, { method: 'GET', headers });
-            yield {
-                id: `${protocol}-models`,
-                title: `${labelOf(protocol)} 拉取模型列表`,
-                status: listed.rank,
-                method: 'GET',
-                url: getUrl,
-                httpStatus: listed.status,
-                ms: listed.ms,
-                detail: listed.detail,
-            };
-            ranks.push(listed.rank);
-            if (listed.rank === 'ok')
-                continue;
             const posts = postProbes(protocol, proto.baseUrl, models[0], headers, proto.wireApi);
+            let requestRank;
             if (!posts.length) {
-                yield { id: `${protocol}-chat`, title: `${labelOf(protocol)} 发送测试请求`, status: 'skip', detail: '没有可测的模型名，且模型列表不可用' };
-                continue;
-            }
-            for (const post of posts) {
-                yield { id: post.id, title: post.title, status: 'running', method: 'POST', url: post.url };
-                const replied = await probe(post.url, { method: 'POST', headers: post.headers, body: post.body });
                 yield {
-                    id: post.id,
-                    title: post.title,
-                    status: replied.rank,
-                    method: 'POST',
-                    url: post.url,
-                    httpStatus: replied.status,
-                    ms: replied.ms,
-                    detail: replied.detail,
+                    id: `${protocol}-chat`,
+                    title: `${labelOf(protocol)} 发送测试消息「${PING_PROMPT}」`,
+                    status: 'skip',
+                    detail: '没有可测的模型名',
                 };
-                ranks.push(replied.rank);
-                if (replied.rank === 'ok')
-                    break;
+            }
+            else {
+                for (const post of posts) {
+                    yield { id: post.id, title: post.title, status: 'running', method: 'POST', url: post.url };
+                    const replied = await probe(post.url, {
+                        method: 'POST',
+                        headers: post.headers,
+                        body: post.body,
+                        showResponse: true,
+                    });
+                    yield {
+                        id: post.id,
+                        title: post.title,
+                        status: replied.rank,
+                        method: 'POST',
+                        url: post.url,
+                        httpStatus: replied.status,
+                        ms: replied.ms,
+                        detail: replied.detail,
+                    };
+                    requestRank = requestRank ? betterRank(requestRank, replied.rank) : replied.rank;
+                    if (replied.rank === 'ok')
+                        break;
+                }
+            }
+            // Only use GET /models as a fallback diagnostic. A successful real
+            // message is the authoritative result, and many relays do not implement
+            // GET /models at all.
+            let listed;
+            if (requestRank !== 'ok') {
+                const getUrl = modelsUrl(proto.baseUrl, protocol);
+                yield { id: `${protocol}-models`, title: `${labelOf(protocol)} 拉取模型列表`, status: 'running', method: 'GET', url: getUrl };
+                listed = await probe(getUrl, { method: 'GET', headers });
+                yield {
+                    id: `${protocol}-models`,
+                    title: `${labelOf(protocol)} 拉取模型列表`,
+                    status: listed.rank,
+                    method: 'GET',
+                    url: getUrl,
+                    httpStatus: listed.status,
+                    ms: listed.ms,
+                    detail: listed.detail,
+                };
+            }
+            if (requestRank === 'ok') {
+                ranks.push('ok');
+            }
+            else if (requestRank === 'warn') {
+                ranks.push('warn');
+            }
+            else if (listed?.rank === 'ok') {
+                // The service is reachable, but the actual test message did not pass.
+                ranks.push('warn');
+            }
+            else {
+                ranks.push(requestRank || listed?.rank || 'fail');
             }
         }
         const best = ranks.includes('ok') ? 'ok' : ranks.includes('warn') ? 'warn' : 'fail';
@@ -487,10 +519,10 @@ export class Engine {
             title: best === 'ok' ? '测通成功' : best === 'warn' ? '服务可达' : '测通失败',
             status: best,
             detail: best === 'ok'
-                ? '接口可用'
+                ? `已发送测试消息「${PING_PROMPT}」并收到响应`
                 : best === 'warn'
-                    ? '地址是通的，但鉴权或请求被拒绝，请检查 API Key / 模型名'
-                    : '连不上该地址',
+                    ? `地址可达，但测试消息「${PING_PROMPT}」未通过，请检查 API Key、协议或模型名`
+                    : `发送测试消息「${PING_PROMPT}」失败，请检查地址、API Key 和模型名`,
         };
     }
     prompt() {
@@ -691,10 +723,11 @@ function uniqueId(base, exists) {
         i += 1;
     return `${base}-${i}`;
 }
+const PING_PROMPT = '你好，今日天气';
 function modelsUrl(baseUrl, protocol) {
     const trimmed = baseUrl.replace(/\/$/, '');
     if (protocol === 'anthropic')
-        return `${trimmed}/v1/models`;
+        return `${apiV1Root(trimmed)}/models`;
     if (trimmed.endsWith('/v1'))
         return `${trimmed}/models`;
     return `${trimmed}/v1/models`;
@@ -716,13 +749,23 @@ function labelOf(protocol) {
     return 'OpenAI';
 }
 function authHeaders(protocol, apiKey) {
+    const key = apiKey.trim();
     if (protocol === 'anthropic') {
-        return { 'x-api-key': apiKey.trim(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+        return { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+    }
+    if (protocol === 'gemini') {
+        const headers = { 'content-type': 'application/json' };
+        if (key)
+            headers['x-goog-api-key'] = key;
+        return headers;
     }
     const headers = { 'content-type': 'application/json' };
-    if (apiKey.trim())
-        headers.Authorization = `Bearer ${apiKey.trim()}`;
+    if (key)
+        headers.Authorization = `Bearer ${key}`;
     return headers;
+}
+function apiV1Root(baseUrl) {
+    return baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
 }
 function postProbes(protocol, baseUrl, model, headers, wireApi) {
     if (!model)
@@ -731,47 +774,115 @@ function postProbes(protocol, baseUrl, model, headers, wireApi) {
     if (protocol === 'anthropic') {
         return [{
                 id: 'anthropic-messages',
-                title: 'Anthropic 发送测试消息',
-                url: `${trimmed}/v1/messages`,
+                title: `Anthropic 发送测试消息「${PING_PROMPT}」`,
+                url: `${apiV1Root(trimmed)}/messages`,
                 headers,
-                body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
+                body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: PING_PROMPT }] }),
             }];
     }
     if (protocol === 'gemini') {
         const root = trimmed.endsWith('/v1') || trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`;
         return [{
                 id: 'gemini-generate',
-                title: 'Gemini 发送测试请求',
+                title: `Gemini 发送测试消息「${PING_PROMPT}」`,
                 url: `${root}/models/${encodeURIComponent(model)}:generateContent`,
                 headers,
-                body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
+                body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: PING_PROMPT }] }] }),
             }];
     }
-    const openaiRoot = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+    const openaiRoot = apiV1Root(trimmed);
     const chat = {
         id: 'openai-chat',
-        title: 'OpenAI Chat Completions 测试',
+        title: `OpenAI Chat Completions 测试消息「${PING_PROMPT}」`,
         url: `${openaiRoot}/chat/completions`,
         headers,
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 16 }),
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: PING_PROMPT }], max_tokens: 16, stream: false }),
     };
     const responses = {
         id: 'openai-responses',
-        title: 'OpenAI Responses 测试',
+        title: `OpenAI Responses 测试消息「${PING_PROMPT}」`,
         url: `${openaiRoot}/responses`,
         headers,
-        body: JSON.stringify({ model, input: 'ping', max_output_tokens: 16 }),
+        body: JSON.stringify({ model, input: PING_PROMPT, max_output_tokens: 16, store: false }),
     };
     return wireApi === 'responses' ? [responses, chat] : [chat, responses];
 }
-function jsonMessage(text) {
+function jsonValue(text) {
     try {
-        const json = JSON.parse(text);
-        return json.error?.message || json.message;
+        return JSON.parse(text);
     }
     catch {
         return undefined;
     }
+}
+function jsonMessage(text) {
+    const json = jsonValue(text);
+    const root = asRecord(json);
+    const error = asRecord(root?.error);
+    return asString(error?.message) || asString(root?.message);
+}
+function responseText(text) {
+    const root = asRecord(jsonValue(text));
+    if (!root)
+        return undefined;
+    const direct = asString(root.output_text);
+    if (direct)
+        return direct;
+    const choices = Array.isArray(root.choices) ? root.choices : [];
+    const choice = asRecord(choices[0]);
+    const message = asRecord(choice?.message);
+    const choiceText = textContent(message?.content) || textContent(choice?.text);
+    if (choiceText)
+        return choiceText;
+    const content = textContent(root.content);
+    if (content)
+        return content;
+    const output = Array.isArray(root.output) ? root.output : [];
+    for (const item of output) {
+        const itemRecord = asRecord(item);
+        const outputText = textContent(itemRecord?.content) || asString(itemRecord?.text);
+        if (outputText)
+            return outputText;
+    }
+    const candidates = Array.isArray(root.candidates) ? root.candidates : [];
+    const candidate = asRecord(candidates[0]);
+    const candidateContent = asRecord(candidate?.content);
+    return textContent(candidateContent?.parts);
+}
+function textContent(value) {
+    if (typeof value === 'string')
+        return value;
+    if (Array.isArray(value)) {
+        const text = value.map((item) => textContent(item)).filter(Boolean).join(' ');
+        return text || undefined;
+    }
+    const record = asRecord(value);
+    if (!record)
+        return undefined;
+    return asString(record.text) || textContent(record.content) || textContent(record.parts);
+}
+function asRecord(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+}
+function asString(value) {
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+function clip(text, length = 180) {
+    return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+function betterRank(current, next) {
+    if (current === 'ok' || next === 'ok')
+        return 'ok';
+    if (current === 'warn' || next === 'warn')
+        return 'warn';
+    if (current === 'running' || next === 'running')
+        return 'running';
+    if (current === 'skip' || next === 'skip')
+        return 'skip';
+    return 'fail';
+}
+function isTestStep(step) {
+    return step.id === 'anthropic-messages' || step.id === 'gemini-generate' || step.id === 'openai-chat' || step.id === 'openai-responses';
 }
 function classify(status) {
     if (!status)
@@ -795,6 +906,8 @@ async function probe(url, init) {
         const ms = Date.now() - started;
         const rank = classify(res.status);
         const message = jsonMessage(text);
+        const parsed = jsonValue(text);
+        const reply = init.showResponse ? clip(responseText(text) || (parsed === undefined ? text : '')) : undefined;
         let detail = message || text || `HTTP ${res.status}`;
         if (rank === 'warn' && (res.status === 401 || res.status === 403)) {
             detail = `服务可达，鉴权失败：${message || 'API Key 无效'}`;
@@ -803,7 +916,7 @@ async function probe(url, init) {
             detail = `服务可达，请求被拒绝：${message || text || 'HTTP 400'}`;
         }
         else if (rank === 'ok') {
-            detail = message || '接口可用';
+            detail = init.showResponse ? `收到回复：${reply || '接口可用'}` : '接口可用';
         }
         return { ok: rank === 'ok', rank, status: res.status, ms, detail };
     }
