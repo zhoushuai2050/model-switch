@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
+import { connect as netConnect } from 'node:net';
 import { afterEach, beforeEach, test } from 'node:test';
 import { resetDbCache } from '../src/core/db.ts';
 import { Engine } from '../src/core/engine.ts';
@@ -241,6 +242,63 @@ test('ping sends a real test message and reports the reply', async () => {
     assert.match(responseStep?.detail || '', /今天天气不错/);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('ping routes requests through HTTP_PROXY when configured', async () => {
+  const upstreamRequests: string[] = [];
+  const upstream = createServer((req, res) => {
+    upstreamRequests.push(`${req.method} ${req.url}`);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ output_text: '代理测试成功' }));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()));
+  const upstreamAddress = upstream.address();
+  if (!upstreamAddress || typeof upstreamAddress === 'string') throw new Error('no upstream port');
+
+  const proxyConnects: string[] = [];
+  const proxy = createServer();
+  proxy.on('connect', (req, clientSocket, head) => {
+    proxyConnects.push(`${req.method} ${req.url}`);
+    const upstreamSocket = netConnect(upstreamAddress.port, '127.0.0.1', () => {
+      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (head.length) upstreamSocket.write(head);
+      clientSocket.pipe(upstreamSocket);
+      upstreamSocket.pipe(clientSocket);
+    });
+    upstreamSocket.on('error', () => clientSocket.destroy());
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', () => resolve()));
+  const proxyAddress = proxy.address();
+  if (!proxyAddress || typeof proxyAddress === 'string') throw new Error('no proxy port');
+
+  const proxyKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
+  const previous = new Map(proxyKeys.map((key) => [key, process.env[key]]));
+  for (const key of proxyKeys) delete process.env[key];
+  process.env.HTTP_PROXY = `http://127.0.0.1:${proxyAddress.port}`;
+
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'proxied',
+      apiKey: 'sk-x',
+      openaiUrl: 'http://upstream.example/v1',
+      models: ['gpt-test'],
+    });
+    const result = await engine.ping(created.id, 'codex');
+    assert.equal(result.ok, true);
+    assert.deepEqual(proxyConnects, ['CONNECT upstream.example:80']);
+    assert.deepEqual(upstreamRequests, ['POST /v1/responses']);
+  } finally {
+    for (const key of proxyKeys) {
+      const value = previous.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await Promise.all([
+      new Promise<void>((resolve, reject) => proxy.close((error) => (error ? reject(error) : resolve()))),
+      new Promise<void>((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve()))),
+    ]);
   }
 });
 

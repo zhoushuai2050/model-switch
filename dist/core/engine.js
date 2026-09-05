@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
-import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici';
 import { adapters, getAdapter } from "../adapters/index.js";
 import * as db from "./db.js";
 import { atomicWrite, backupFiles, readText } from "./fsutil.js";
@@ -941,26 +940,62 @@ function classify(status) {
 }
 let proxyAgent;
 let proxyEnvSignature = '';
-function httpProxyAgent() {
-    const signature = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']
-        .map((key) => `${key}=${process.env[key] || ''}`)
-        .join('\n');
+let undiciModule;
+let undiciLoad;
+const PROXY_ENV_KEYS = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
+function proxyEnvironmentSignature() {
+    return PROXY_ENV_KEYS.map((key) => `${key}=${process.env[key] || ''}`).join('\n');
+}
+function hasProxyEnvironment() {
+    return ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+        .some((key) => Boolean(process.env[key]?.trim()));
+}
+function httpProxyAgent(EnvHttpProxyAgent) {
+    const signature = proxyEnvironmentSignature();
     if (!proxyAgent || signature !== proxyEnvSignature) {
         proxyAgent = new EnvHttpProxyAgent();
         proxyEnvSignature = signature;
     }
     return proxyAgent;
 }
-async function probe(url, init) {
-    const started = Date.now();
-    try {
-        const res = await undiciFetch(url, {
+async function loadUndici() {
+    if (undiciModule)
+        return undiciModule;
+    if (!undiciLoad) {
+        undiciLoad = import('undici')
+            .then((module) => {
+            undiciModule = module;
+            return module;
+        })
+            .catch(() => undefined);
+    }
+    return undiciLoad;
+}
+async function request(url, init) {
+    if (!hasProxyEnvironment()) {
+        return globalThis.fetch(url, {
             method: init.method,
             headers: init.headers,
             body: init.body,
             signal: AbortSignal.timeout(12000),
-            dispatcher: httpProxyAgent(),
         });
+    }
+    const undici = await loadUndici();
+    if (!undici) {
+        throw new EngineError('检测到 HTTP(S)_PROXY 环境变量，但当前安装缺少 undici。请在项目目录执行 npm install --omit=dev 后重试。');
+    }
+    return undici.fetch(url, {
+        method: init.method,
+        headers: init.headers,
+        body: init.body,
+        signal: AbortSignal.timeout(12000),
+        dispatcher: httpProxyAgent(undici.EnvHttpProxyAgent),
+    });
+}
+async function probe(url, init) {
+    const started = Date.now();
+    try {
+        const res = await request(url, init);
         const text = (await res.text()).slice(0, 280).replace(/\s+/g, ' ').trim();
         const ms = Date.now() - started;
         const rank = classify(res.status);

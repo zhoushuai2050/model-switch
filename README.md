@@ -30,6 +30,15 @@ hash -r
 msw help
 ```
 
+如果你是直接从仓库目录里的 `bin/msw` 运行，`git pull` 不会自动更新依赖；请额外执行：
+
+```bash
+cd ~/.model-switch/app
+npm install --omit=dev --ignore-scripts
+```
+
+其中 `undici` 用于在设置 `HTTP_PROXY` / `HTTPS_PROXY` 时让管理台测通请求复用代理。未配置代理时，程序也可以回退到 Node.js 内置 `fetch`；配置了代理则需要确保依赖已经安装。
+
 也可以只克隆、不全局安装：
 
 ```bash
