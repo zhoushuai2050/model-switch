@@ -25,15 +25,6 @@ async function dispatch() {
         case '':
             await runTui();
             return;
-        case 'init': {
-            const result = engine.init();
-            console.log(`imported ${result.imported.length}, skipped ${result.skipped.length}`);
-            for (const item of result.imported)
-                console.log(`  ${item.agentId} → ${item.providerId} (${item.model})`);
-            for (const item of result.skipped)
-                console.log(color.dim(`  skip ${item.agentId}: ${item.reason}`));
-            return;
-        }
         case 'status': {
             const status = engine.status();
             printStatus(status.agents, status.state.currentAgent, status.profile?.name);
@@ -272,5 +263,5 @@ function doctor() {
         console.log(`${agent.id.padEnd(9)} ${bin}  ${cfg}  ${agent.model || ''}`);
     }
     if (!engine.listProviders().length)
-        console.log(color.dim('hint: msw init  or  msw provider add kimi --key sk-...'));
+        console.log(color.dim('hint: msw provider add kimi --key sk-...'));
 }

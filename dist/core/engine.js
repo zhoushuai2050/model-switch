@@ -64,62 +64,6 @@ export class Engine {
     listLogs(limit = 20) {
         return db.listLogs(limit);
     }
-    init() {
-        const imported = [];
-        const skipped = [];
-        for (const adapter of adapters) {
-            const live = adapter.importLive();
-            if (!live) {
-                skipped.push({ agentId: adapter.id, reason: 'no live config' });
-                continue;
-            }
-            if (db.getProvider(live.provider.id) || findImportedProvider(adapter.id, live.provider)) {
-                skipped.push({ agentId: adapter.id, reason: 'already imported' });
-                continue;
-            }
-            live.provider.updatedAt = now();
-            db.upsertProvider(live.provider);
-            db.upsertModel({
-                id: `${live.provider.id}-${slug(live.model)}`,
-                providerId: live.provider.id,
-                modelId: live.model,
-                alias: live.model,
-                agentHint: adapter.id,
-            });
-            const profileId = live.provider.id;
-            const existing = db.getProfile(profileId);
-            const profile = existing || {
-                id: profileId,
-                name: live.provider.name,
-                description: `Imported from ${adapter.displayName}`,
-                defaultAgent: adapter.id,
-                sortIndex: 0,
-                bindings: [],
-                createdAt: now(),
-                updatedAt: now(),
-            };
-            db.upsertProfile(profile);
-            db.upsertBinding({
-                id: randomUUID(),
-                profileId,
-                agentId: adapter.id,
-                providerId: live.provider.id,
-                modelId: live.model,
-            });
-            imported.push({ agentId: adapter.id, providerId: live.provider.id, model: live.model });
-        }
-        const agents = this.listAgents();
-        const current = db.getState();
-        if (!current.currentAgent) {
-            const first = agents.find((agent) => agent.installed) || agents.find((agent) => agent.configured);
-            if (first)
-                db.setState({ currentAgent: first.id });
-        }
-        if (!current.currentProfile && imported[0]) {
-            db.setState({ currentProfile: imported[0].providerId });
-        }
-        return { imported, skipped };
-    }
     addProvider(input) {
         const preset = input.preset ? getPreset(input.preset) : undefined;
         const baseName = input.name || preset?.name || input.preset || 'custom';
@@ -600,26 +544,6 @@ export class Engine {
         }
     }
 }
-function findImportedProvider(agentId, candidate) {
-    const adapter = getAdapter(agentId);
-    const candidateProtocol = protocolFor(candidate, adapter.protocol);
-    if (!candidateProtocol)
-        return undefined;
-    const candidateName = candidate.name.trim().toLowerCase();
-    const candidateBaseUrl = candidateProtocol.baseUrl.replace(/\/$/, '');
-    for (const profile of db.listProfiles()) {
-        const binding = profile.bindings.find((item) => item.agentId === agentId);
-        if (!binding)
-            continue;
-        const existing = db.getProvider(binding.providerId);
-        if (!existing || existing.name.trim().toLowerCase() !== candidateName)
-            continue;
-        const existingProtocol = protocolFor(existing, adapter.protocol);
-        if (existingProtocol?.baseUrl.replace(/\/$/, '') === candidateBaseUrl)
-            return existing;
-    }
-    return undefined;
-}
 function agentPresent(agentId) {
     const adapter = getAdapter(agentId);
     const detected = adapter.detect();
@@ -720,10 +644,7 @@ function payloadForAgent(agent) {
                 return { provider, model: binding.modelId };
         }
     }
-    const live = getAdapter(agent).importLive();
-    if (live)
-        return live;
-    throw new EngineError(`No provider configured for ${agent}. Run msw init or msw provider add`);
+    throw new EngineError(`No provider configured for ${agent}. Run msw provider add`);
 }
 function defaultModelFor(providerId, agent) {
     const models = db.modelsForProvider(providerId);

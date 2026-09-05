@@ -45,7 +45,7 @@ export function printProviders(providers: Provider[]): void {
 
 export function printProfiles(profiles: Profile[], current?: string): void {
   if (!profiles.length) {
-    console.log('No profiles. Run msw init or msw provider add.');
+    console.log('No profiles. Run msw provider add.');
     return;
   }
   for (const profile of profiles) {

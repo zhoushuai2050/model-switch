@@ -85,9 +85,6 @@ export async function runTui(): Promise<void> {
         engine.spawn(spec);
         resolve();
         return;
-      } else if (key === 'i') {
-        const result = engine.init();
-        message = `导入 ${result.imported.length} 个 Agent`;
       }
       render();
     });

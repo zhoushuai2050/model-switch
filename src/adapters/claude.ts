@@ -1,10 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from '../core/fsutil.ts';
 import { claudeHome, claudeJsonPath } from '../core/paths.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
-import { now } from '../core/types.ts';
 import type { Adapter, LaunchSpec } from './types.ts';
 import { findBinary } from './which.ts';
 
@@ -50,29 +48,6 @@ export const claudeAdapter: Adapter = {
   },
   liveFiles() {
     return [settingsPath(), claudeJsonPath()];
-  },
-  importLive() {
-    const settings = readJson<Settings>(settingsPath()) || {};
-    const env = settings.env || {};
-    const baseUrl = env.ANTHROPIC_BASE_URL || '';
-    const apiKey = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
-    const model = env.ANTHROPIC_MODEL || settings.model || '';
-    if (!baseUrl && !apiKey && !model) return null;
-    const authMode = env.ANTHROPIC_API_KEY && !env.ANTHROPIC_AUTH_TOKEN ? 'api_key' : 'auth_token';
-    const provider: Provider = {
-      id: randomUUID(),
-      name: 'Imported Claude',
-      apiKey,
-      protocols: {
-        anthropic: {
-          baseUrl: baseUrl || 'https://api.anthropic.com',
-          authMode,
-        },
-      },
-      createdAt: now(),
-      updatedAt: now(),
-    };
-    return { provider, model: model || 'claude-sonnet-4-6' };
   },
   apply(payload: ApplyPayload) {
     backupFiles('claude', this.liveFiles());

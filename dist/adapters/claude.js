@@ -1,9 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from "../core/fsutil.js";
 import { claudeHome, claudeJsonPath } from "../core/paths.js";
-import { now } from "../core/types.js";
 import { findBinary } from "./which.js";
 function settingsPath() {
     return join(claudeHome(), 'settings.json');
@@ -40,30 +38,6 @@ export const claudeAdapter = {
     },
     liveFiles() {
         return [settingsPath(), claudeJsonPath()];
-    },
-    importLive() {
-        const settings = readJson(settingsPath()) || {};
-        const env = settings.env || {};
-        const baseUrl = env.ANTHROPIC_BASE_URL || '';
-        const apiKey = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
-        const model = env.ANTHROPIC_MODEL || settings.model || '';
-        if (!baseUrl && !apiKey && !model)
-            return null;
-        const authMode = env.ANTHROPIC_API_KEY && !env.ANTHROPIC_AUTH_TOKEN ? 'api_key' : 'auth_token';
-        const provider = {
-            id: randomUUID(),
-            name: 'Imported Claude',
-            apiKey,
-            protocols: {
-                anthropic: {
-                    baseUrl: baseUrl || 'https://api.anthropic.com',
-                    authMode,
-                },
-            },
-            createdAt: now(),
-            updatedAt: now(),
-        };
-        return { provider, model: model || 'claude-sonnet-4-6' };
     },
     apply(payload) {
         backupFiles('claude', this.liveFiles());

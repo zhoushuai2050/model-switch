@@ -2,7 +2,6 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
 
 用法:
   msw                         打开终端切换台
-  msw init                    扫描并导入本机 Claude / Codex / Gemini / OpenCode 配置
   msw status                  查看当前 Agent、模型、Profile
   msw ls [agents|providers|profiles|models|mcp]
   msw use <target>            切换 Profile / Provider / 模型

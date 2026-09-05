@@ -28,13 +28,6 @@ async function dispatch(): Promise<void> {
     case '':
       await runTui();
       return;
-    case 'init': {
-      const result = engine.init();
-      console.log(`imported ${result.imported.length}, skipped ${result.skipped.length}`);
-      for (const item of result.imported) console.log(`  ${item.agentId} → ${item.providerId} (${item.model})`);
-      for (const item of result.skipped) console.log(color.dim(`  skip ${item.agentId}: ${item.reason}`));
-      return;
-    }
     case 'status': {
       const status = engine.status();
       printStatus(status.agents, status.state.currentAgent, status.profile?.name);
@@ -264,5 +257,5 @@ function doctor(): void {
     const cfg = agent.configured ? color.green('config') : color.dim('no-config');
     console.log(`${agent.id.padEnd(9)} ${bin}  ${cfg}  ${agent.model || ''}`);
   }
-  if (!engine.listProviders().length) console.log(color.dim('hint: msw init  or  msw provider add kimi --key sk-...'));
+  if (!engine.listProviders().length) console.log(color.dim('hint: msw provider add kimi --key sk-...'));
 }

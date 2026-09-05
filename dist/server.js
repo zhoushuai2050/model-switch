@@ -68,8 +68,6 @@ async function api(req, res, url) {
         return send(res, 200, engine.listMcp());
     if (req.method === 'GET' && path === '/api/logs')
         return send(res, 200, engine.listLogs());
-    if (req.method === 'POST' && path === '/api/init')
-        return send(res, 200, engine.init());
     if (req.method === 'POST' && path === '/api/switch') {
         const body = await readBody(req);
         const result = engine.use(String(body.target || body.profileId || ''), {

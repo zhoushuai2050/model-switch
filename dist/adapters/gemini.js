@@ -1,10 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWrite, backupFiles, readJson, readText, writeJson } from "../core/fsutil.js";
 import { parseEnv, stringifyEnv } from "../core/envfile.js";
 import { geminiHome } from "../core/paths.js";
-import { now } from "../core/types.js";
 import { findBinary } from "./which.js";
 function envPath() {
     return join(geminiHome(), '.env');
@@ -33,28 +31,6 @@ export const geminiAdapter = {
     },
     liveFiles() {
         return [envPath(), settingsPath()];
-    },
-    importLive() {
-        const text = readText(envPath()) || '';
-        const env = parseEnv(text);
-        const settings = readJson(settingsPath()) || {};
-        const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '';
-        const baseUrl = env.GOOGLE_GEMINI_BASE_URL || '';
-        const model = env.GEMINI_MODEL || settings.model || '';
-        if (!apiKey && !baseUrl && !model)
-            return null;
-        const provider = {
-            id: randomUUID(),
-            name: 'Imported Gemini',
-            apiKey,
-            protocols: {
-                gemini: { baseUrl: baseUrl || 'https://generativelanguage.googleapis.com' },
-                openai: baseUrl ? { baseUrl, wireApi: 'chat' } : undefined,
-            },
-            createdAt: now(),
-            updatedAt: now(),
-        };
-        return { provider, model: model || 'gemini-2.5-pro' };
     },
     apply(payload) {
         backupFiles('gemini', this.liveFiles());

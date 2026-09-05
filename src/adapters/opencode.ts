@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from '../core/fsutil.ts';
@@ -34,30 +33,6 @@ export const opencodeAdapter: Adapter = {
   },
   liveFiles() {
     return [configPath(), join(opencodeHome(), 'AGENTS.md')];
-  },
-  importLive() {
-    const config = readJson<OpenCodeConfig>(configPath());
-    if (!config) return null;
-    const model = String(config.model || '');
-    const [provId, modelId] = model.includes('/') ? model.split(/\/(.*)/).filter(Boolean) : ['imported', model];
-    const providers = config.provider || {};
-    const entry = (providers[provId] || Object.values(providers)[0]) as
-      | { options?: { baseURL?: string; apiKey?: string }; name?: string }
-      | undefined;
-    const provider: Provider = {
-      id: randomUUID(),
-      name: entry?.name || 'Imported OpenCode',
-      apiKey: entry?.options?.apiKey || '',
-      protocols: {
-        openai: {
-          baseUrl: entry?.options?.baseURL || 'https://api.openai.com/v1',
-          wireApi: 'chat',
-        },
-      },
-      createdAt: now(),
-      updatedAt: now(),
-    };
-    return { provider, model: modelId || model || 'gpt-4.1' };
   },
   apply(payload: ApplyPayload) {
     backupFiles('opencode', [configPath()]);

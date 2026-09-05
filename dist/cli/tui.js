@@ -89,10 +89,6 @@ export async function runTui() {
                 resolve();
                 return;
             }
-            else if (key === 'i') {
-                const result = engine.init();
-                message = `导入 ${result.imported.length} 个 Agent`;
-            }
             render();
         });
         process.stdout.on('resize', render);

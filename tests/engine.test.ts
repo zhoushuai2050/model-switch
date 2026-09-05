@@ -27,53 +27,6 @@ afterEach(() => {
   resetDbCache();
 });
 
-test('init imports live Codex config and use switches model', () => {
-  writeFileSync(
-    join(root, '.codex', 'config.toml'),
-    `model = "grok-4.6"
-model_provider = "crs"
-
-[model_providers.crs]
-base_url = "http://127.0.0.1:8000/v1"
-name = "crs"
-wire_api = "responses"
-
-[projects."/tmp"]
-trust_level = "trusted"
-`,
-  );
-  writeFileSync(
-    join(root, '.codex', 'auth.json'),
-    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-live' }, null, 2),
-  );
-
-  const engine = new Engine();
-  const imported = engine.init();
-  assert.equal(imported.imported.length, 1);
-  assert.equal(imported.imported[0].agentId, 'codex');
-  assert.match(imported.imported[0].providerId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-  const repeated = engine.init();
-  assert.equal(repeated.imported.length, 0);
-  assert.equal(engine.listProviders().length, 1);
-
-  engine.addProvider({
-    preset: 'kimi',
-    apiKey: 'sk-kimi',
-    models: ['kimi-k2.5'],
-  });
-  engine.setAgent('codex');
-  const result = engine.use('kimi');
-  assert.ok(result.applied.includes('codex'));
-  assert.equal(result.profileId, 'kimi');
-  assert.equal(engine.status().state.currentProfile, 'kimi');
-
-  const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');
-  assert.match(text, /model = "kimi-k2.5"/);
-  assert.match(text, /\[projects\."\/tmp"\]/);
-  const auth = JSON.parse(readFileSync(join(root, '.codex', 'auth.json'), 'utf8'));
-  assert.equal(auth.OPENAI_API_KEY, 'sk-kimi');
-});
-
 test('new providers use random UUID IDs while names remain usable targets', () => {
   const engine = new Engine();
   const first = engine.addProvider({ name: 'relay', apiKey: 'sk-a', openaiUrl: 'https://a.example/v1', models: ['a'] });
@@ -109,7 +62,6 @@ name = "crs"
 `,
   );
   const engine = new Engine();
-  engine.init();
   engine.addProvider({ preset: 'deepseek', apiKey: 'sk-ds' });
   engine.setAgent('codex');
   const spec = engine.launch({ profile: 'deepseek' });

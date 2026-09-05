@@ -18,7 +18,7 @@ npm i -g . --omit=dev --ignore-scripts \
   --registry=https://registry.npmjs.org/ \
   --replace-registry-host=never
 hash -r
-msw init
+msw provider add kimi --key sk-xxx
 msw status
 ```
 
@@ -53,7 +53,7 @@ cd model-switch
 npm install \
   --registry=https://registry.npmjs.org/ \
   --replace-registry-host=never
-node dist/cli.js init
+node dist/cli.js provider add kimi --key sk-xxx
 ```
 
 加一个渠道并切过去（预设或自定义中转二选一）：
@@ -97,7 +97,7 @@ export PS1='$(msw prompt 2>/dev/null) '"$PS1"
 msw serve --port 8787
 ```
 
-浏览器打开本机页面：导入现有配置、添加供应商、一键切换 Profile、测通、同步 MCP。测通会使用当前 Agent 的协议和第一个配置模型，随机生成一条简短提示词实际发送，并显示接口返回内容；这会消耗少量上游 Token。
+浏览器打开本机页面：添加供应商、一键切换 Profile、测通、同步 MCP。测通会使用当前 Agent 的协议和第一个配置模型，随机生成一条简短提示词实际发送，并显示接口返回内容；这会消耗少量上游 Token。
 
 顶部切换 Claude / Codex / Gemini / OpenCode 后，只显示当前 Agent 能用的供应商卡片。卡片上的 OpenAI / Anthropic / Gemini 标签表示已配置对应地址，测通也只测当前 Agent 的协议。
 
@@ -212,4 +212,4 @@ msw use packy
 - **Profile**：一次切换可落到多个 Agent
 - **全局切换**：改 live 配置
 - **会话切换**：`msw run --profile` 只影响本次进程
-- **适配器**：新 Agent 实现 `detect / importLive / apply / sessionLaunch` 即可接入
+- **适配器**：新 Agent 实现 `detect / apply / sessionLaunch` 即可接入

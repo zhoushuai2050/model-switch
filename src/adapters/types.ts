@@ -13,7 +13,6 @@ export interface Adapter {
   binaries: string[];
   detect(): { installed: boolean; bin?: string };
   liveFiles(): string[];
-  importLive(): ApplyPayload | null;
   apply(payload: ApplyPayload): void;
   readStatus(): { model?: string; baseUrl?: string; providerLabel?: string; configured: boolean };
   sessionLaunch(payload: ApplyPayload, extraArgs: string[]): LaunchSpec;

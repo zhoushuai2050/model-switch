@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, readText, writeJson, atomicWrite } from '../core/fsutil.ts';
@@ -111,34 +110,6 @@ export const codexAdapter: Adapter = {
   },
   liveFiles() {
     return [configPath(), authPath(), catalogPath()];
-  },
-  importLive() {
-    const text = readText(configPath());
-    if (!text) return null;
-    const model = getTopLevel(text, 'model') || '';
-    const providerId = getTopLevel(text, 'model_provider') || '';
-    const table = providerId ? getTable(text, `model_providers.${providerId}`) : undefined;
-    const auth = readJson<Record<string, unknown>>(authPath()) || {};
-    const apiKey = String(auth.OPENAI_API_KEY || '');
-    const baseUrl = table && typeof table.base_url === 'string' ? table.base_url : '';
-    if (!model && !providerId && !baseUrl) return null;
-    const wire = table && typeof table.wire_api === 'string' ? table.wire_api : 'responses';
-    const provider: Provider = {
-      id: randomUUID(),
-      name: String(table?.name || providerId || 'Imported Codex'),
-      apiKey,
-      protocols: {
-        openai: {
-          baseUrl: baseUrl || 'https://api.openai.com/v1',
-          wireApi: wire === 'chat' ? 'chat' : 'responses',
-          authMode: table?.requires_openai_auth === false ? 'env_key' : 'openai_auth',
-          envKey: typeof table?.env_key === 'string' ? table.env_key : 'OPENAI_API_KEY',
-        },
-      },
-      createdAt: now(),
-      updatedAt: now(),
-    };
-    return { provider, model: model || 'gpt-5.4' };
   },
   apply(payload: ApplyPayload) {
     backupFiles('codex', this.liveFiles());

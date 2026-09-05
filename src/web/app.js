@@ -191,7 +191,7 @@ function renderProviders() {
   });
   if (!list.length) {
     const empty = !state.providers.length
-      ? { title: '还没有供应商', detail: '导入本机配置，或添加一个预设 / 自定义中转。' }
+      ? { title: '还没有供应商', detail: '添加一个预设或自定义中转。' }
       : !scoped.length
         ? { title: `当前 ${appName()} 没有可用供应商`, detail: `请添加带 ${agentNeedLabel()} 地址的供应商，或切换到其他 Agent。` }
         : { title: '没有匹配的供应商', detail: '换个关键词，或清空搜索后再试。' };
@@ -238,7 +238,7 @@ function renderProviders() {
 
 function renderProfiles() {
   if (!state.profiles.length) {
-    $('#view-profiles').innerHTML = '<div class="empty"><h3>还没有 Profile</h3><p>导入配置或添加供应商后会自动生成。</p></div>';
+    $('#view-profiles').innerHTML = '<div class="empty"><h3>还没有 Profile</h3><p>添加供应商后会自动生成。</p></div>';
     return;
   }
   $('#view-profiles').innerHTML = `<div class="section-title">Profiles</div>${state.profiles.map((profile) => {
@@ -470,10 +470,6 @@ document.body.addEventListener('click', async (event) => {
   if (t.dataset.view) {
     state.view = t.dataset.view;
     render();
-    return;
-  }
-  if (t.id === 'btn-init') {
-    await run(() => api('/api/init', { method: 'POST', body: {} }), '已导入本机配置');
     return;
   }
   if (t.id === 'btn-add' || t.id === 'btn-add-empty') {
