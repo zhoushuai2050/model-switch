@@ -434,7 +434,7 @@ async function run(action, success) {
 document.body.addEventListener('click', async (event) => {
   const t = event.target.closest('button, [data-app], [data-view]');
   if (!t) {
-    if (event.target.id === 'modal') closeModal();
+    if (event.target.id === 'modal' && !$('#add-provider, #edit-provider')) closeModal();
     if (!event.target.closest('#theme-picker')) $('#theme-menu')?.classList.add('hidden');
     return;
   }

@@ -35,7 +35,10 @@ async function dispatch(): Promise<void> {
     }
     case 'ls':
     case 'list':
-      list(args.args[0] || 'profiles');
+      list(args.args[0] || 'providers');
+      return;
+    case 'providers':
+      list('providers');
       return;
     case 'use': {
       if (!args.args[0]) throw new EngineError('Usage: msw use <profile|provider|model|agent:model>');
@@ -117,7 +120,7 @@ function list(kind: string): void {
       return;
     case 'provider':
     case 'providers':
-      printProviders(engine.listProviders());
+      printProviders(engine.listProviders(), engine.listModels());
       return;
     case 'model':
     case 'models':
@@ -139,7 +142,7 @@ async function providerCommand(): Promise<void> {
   const sub = args.args[0] || 'ls';
   const rest = args.args.slice(1);
   if (sub === 'ls' || sub === 'list') {
-    printProviders(engine.listProviders());
+    printProviders(engine.listProviders(), engine.listModels());
     return;
   }
   if (sub === 'presets') {
@@ -163,10 +166,10 @@ async function providerCommand(): Promise<void> {
     console.log(`added provider ${provider.id}`);
     return;
   }
-  if (sub === 'rm' || sub === 'delete') {
-    if (!rest[0]) throw new EngineError('Usage: msw provider rm <id>');
-    engine.deleteProvider(rest[0]);
-    console.log(`deleted ${rest[0]}`);
+  if (sub === 'rm' || sub === 'delete' || sub === 'remove') {
+    if (!rest[0]) throw new EngineError('Usage: msw provider rm <名称或id>');
+    const provider = engine.deleteProvider(rest[0]);
+    console.log(`已删除供应商 ${provider.name}`);
     return;
   }
   if (sub === 'set-key') {
@@ -190,7 +193,7 @@ async function providerCommand(): Promise<void> {
     return;
   }
   throw new EngineError(
-    'Usage: msw provider ls|add|rm|set-key|ping|presets\n自定义中转: msw help custom',
+    'Usage: msw provider ls|add|rm|set-key|ping|presets\n  msw provider ls           显示所有供应商\n  msw provider rm <名称>    删除供应商\n自定义中转: msw help custom',
   );
 }
 

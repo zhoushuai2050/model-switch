@@ -32,7 +32,10 @@ async function dispatch() {
         }
         case 'ls':
         case 'list':
-            list(args.args[0] || 'profiles');
+            list(args.args[0] || 'providers');
+            return;
+        case 'providers':
+            list('providers');
             return;
         case 'use': {
             if (!args.args[0])
@@ -120,7 +123,7 @@ function list(kind) {
             return;
         case 'provider':
         case 'providers':
-            printProviders(engine.listProviders());
+            printProviders(engine.listProviders(), engine.listModels());
             return;
         case 'model':
         case 'models':
@@ -141,7 +144,7 @@ async function providerCommand() {
     const sub = args.args[0] || 'ls';
     const rest = args.args.slice(1);
     if (sub === 'ls' || sub === 'list') {
-        printProviders(engine.listProviders());
+        printProviders(engine.listProviders(), engine.listModels());
         return;
     }
     if (sub === 'presets') {
@@ -165,11 +168,11 @@ async function providerCommand() {
         console.log(`added provider ${provider.id}`);
         return;
     }
-    if (sub === 'rm' || sub === 'delete') {
+    if (sub === 'rm' || sub === 'delete' || sub === 'remove') {
         if (!rest[0])
-            throw new EngineError('Usage: msw provider rm <id>');
-        engine.deleteProvider(rest[0]);
-        console.log(`deleted ${rest[0]}`);
+            throw new EngineError('Usage: msw provider rm <名称或id>');
+        const provider = engine.deleteProvider(rest[0]);
+        console.log(`已删除供应商 ${provider.name}`);
         return;
     }
     if (sub === 'set-key') {
@@ -197,7 +200,7 @@ async function providerCommand() {
             process.exitCode = 1;
         return;
     }
-    throw new EngineError('Usage: msw provider ls|add|rm|set-key|ping|presets\n自定义中转: msw help custom');
+    throw new EngineError('Usage: msw provider ls|add|rm|set-key|ping|presets\n  msw provider ls           显示所有供应商\n  msw provider rm <名称>    删除供应商\n自定义中转: msw help custom');
 }
 function profileCommand() {
     const sub = args.args[0] || 'ls';

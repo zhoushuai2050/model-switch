@@ -1,4 +1,4 @@
-import type { AgentLiveStatus, Profile, Provider, SwitchResult } from '../core/types.ts';
+import type { AgentLiveStatus, ModelRow, Profile, Provider, SwitchResult } from '../core/types.ts';
 
 export const color = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -31,16 +31,42 @@ export function printSwitch(result: SwitchResult): void {
   }
 }
 
-export function printProviders(providers: Provider[]): void {
+const PROTOCOL_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+};
+
+export function printProviders(providers: Provider[], models: ModelRow[] = []): void {
   if (!providers.length) {
-    console.log('No providers. Try: msw provider add kimi --key sk-...');
+    console.log('还没有供应商。添加: msw provider add kimi --key sk-...');
     return;
   }
+  const nameCount = new Map<string, number>();
   for (const provider of providers) {
-    const protocols = Object.keys(provider.protocols).join(',');
-    const key = provider.apiKey ? color.green('key') : color.dim('no-key');
-    console.log(`${provider.id.padEnd(18)} ${provider.name.padEnd(22)} ${key}  ${color.dim(protocols)}`);
+    const key = provider.name.toLowerCase();
+    nameCount.set(key, (nameCount.get(key) || 0) + 1);
   }
+  console.log(`供应商 ${providers.length} 个`);
+  console.log('');
+  for (const provider of providers) {
+    const protocols = (['openai', 'anthropic', 'gemini'] as const)
+      .map((name) => [name, provider.protocols[name]] as const)
+      .filter(([, cfg]) => cfg?.baseUrl);
+    const tags = protocols.map(([name]) => PROTOCOL_LABELS[name]).join(' ') || '无协议';
+    const key = provider.apiKey ? color.green('KEY') : color.dim('无KEY');
+    const providerModels = models.filter((item) => item.providerId === provider.id).map((item) => item.modelId);
+    console.log(`${color.bold(provider.name)}  ${key}  ${color.dim(tags)}`);
+    if ((nameCount.get(provider.name.toLowerCase()) || 0) > 1) {
+      console.log(`  id         ${provider.id}`);
+    }
+    for (const [name, cfg] of protocols) {
+      console.log(`  ${PROTOCOL_LABELS[name].padEnd(10)} ${cfg?.baseUrl}`);
+    }
+    console.log(`  模型       ${providerModels.join(', ') || '-'}`);
+    console.log('');
+  }
+  console.log(color.dim('删除: msw provider rm <名称>'));
 }
 
 export function printProfiles(profiles: Profile[], current?: string): void {

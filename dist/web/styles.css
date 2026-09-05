@@ -24,6 +24,7 @@
   --hover-bg: rgba(255, 255, 255, 0.04);
   --overlay: rgba(8, 8, 12, 0.62);
   --toast-bg: #111217;
+  --toast-fg: #f8fafc;
   --tag-neutral-fg: #d4d4d8;
   --tag-neutral-bg: rgba(255, 255, 255, 0.06);
   --tag-neutral-border: #52525b;
@@ -68,6 +69,7 @@
   --hover-bg: rgba(15, 23, 42, 0.05);
   --overlay: rgba(15, 23, 42, 0.38);
   --toast-bg: #172033;
+  --toast-fg: #f8fafc;
   --tag-neutral-fg: #475467;
   --tag-neutral-bg: #f2f4f7;
   --tag-neutral-border: #cbd5e1;
@@ -109,6 +111,7 @@
   --hover-bg: rgba(148, 255, 240, 0.06);
   --overlay: rgba(3, 15, 18, 0.68);
   --toast-bg: #0b171b;
+  --toast-fg: #f8fafc;
   --tag-neutral-fg: #c8e5e3;
   --tag-neutral-bg: rgba(148, 255, 240, 0.08);
   --tag-neutral-border: #477174;
@@ -149,6 +152,7 @@
   --hover-bg: rgba(244, 235, 255, 0.06);
   --overlay: rgba(13, 9, 22, 0.70);
   --toast-bg: #171421;
+  --toast-fg: #f4ecff;
   --tag-neutral-fg: #e7ddf5;
   --tag-neutral-bg: rgba(244, 235, 255, 0.08);
   --tag-neutral-border: #6b5985;
@@ -189,6 +193,7 @@
   --hover-bg: rgba(225, 255, 239, 0.06);
   --overlay: rgba(4, 16, 11, 0.70);
   --toast-bg: #0e1714;
+  --toast-fg: #effff7;
   --tag-neutral-fg: #d6eee2;
   --tag-neutral-bg: rgba(225, 255, 239, 0.08);
   --tag-neutral-border: #527663;
@@ -456,10 +461,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-sof
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   z-index: 50; padding: 10px 14px; border-radius: 10px;
-  background: var(--toast-bg); border: 1px solid var(--line); box-shadow: var(--shadow);
-  color: var(--ink); font-size: 13px;
+  background: var(--toast-bg); border: 1px solid rgba(255,255,255,0.16); box-shadow: var(--shadow);
+  color: var(--toast-fg); font-size: 13px; font-weight: 600; letter-spacing: 0.01em;
 }
-.toast.err { border-color: rgba(248,113,113,0.4); color: #fecaca; }
+.toast.err { border-color: rgba(248,113,113,0.55); color: #fecaca; background: #3f1d22; }
 
 @media (max-width: 860px) {
   .titlebar { height: auto; grid-template-columns: 1fr; padding: 12px 14px; }

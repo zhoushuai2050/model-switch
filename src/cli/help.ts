@@ -3,14 +3,17 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
 用法:
   msw                         打开终端切换台
   msw status                  查看当前 Agent、模型、Profile
-  msw ls [agents|providers|profiles|models|mcp]
+  msw ls [providers|agents|profiles|models|mcp]
+  msw providers               显示所有供应商
   msw use <target>            切换 Profile / Provider / 模型
   msw agent <claude|codex|gemini|opencode>
   msw model <id>              只切当前 Agent 的模型
   msw run [agent] [--profile x] [-- extra]
+  msw provider ls             显示所有供应商
+  msw provider rm <名称>      删除供应商
   msw provider add <preset> --key <api-key>
   msw provider add custom --name <名> --base-url <url> --key <key> --models <id>
-  msw provider ls|rm|set-key|ping|presets
+  msw provider set-key|ping|presets
   msw profile add <name>
   msw profile bind <id> --agent <a> --provider <p> --model <m>
   msw mcp add --name <n> --command <cmd>

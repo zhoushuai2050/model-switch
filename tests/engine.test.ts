@@ -37,6 +37,25 @@ test('new providers use random UUID IDs while names remain usable targets', () =
   assert.equal(engine.getProvider(first.id).provider.name, 'relay');
 });
 
+test('deleteProvider removes a provider by name', () => {
+  const engine = new Engine();
+  engine.addProvider({ name: 'kimi', apiKey: 'sk-kimi', openaiUrl: 'https://api.moonshot.cn/v1', models: ['kimi-k2.5'] });
+  const deleted = engine.deleteProvider('kimi');
+  assert.equal(deleted.name, 'kimi');
+  assert.equal(engine.listProviders().length, 0);
+  assert.equal(engine.listModels().length, 0);
+});
+
+test('deleteProvider requires id when names collide', () => {
+  const engine = new Engine();
+  const first = engine.addProvider({ name: 'relay', apiKey: 'sk-a', openaiUrl: 'https://a.example/v1', models: ['a'] });
+  const second = engine.addProvider({ name: 'relay', apiKey: 'sk-b', openaiUrl: 'https://b.example/v1', models: ['b'] });
+  assert.throws(() => engine.deleteProvider('relay'), /多个供应商名为 relay/);
+  const deleted = engine.deleteProvider(first.id);
+  assert.equal(deleted.id, first.id);
+  assert.equal(engine.listProviders().map((item) => item.id).join(), second.id);
+});
+
 test('claude adapter writes anthropic env', () => {
   const engine = new Engine();
   const kimi = engine.addProvider({

@@ -76,6 +76,8 @@ msw status
 
 ```bash
 msw                     # TUI
+msw provider ls         # 显示所有供应商
+msw provider rm kimi    # 删除供应商
 msw use kimi            # 切 Profile / 供应商
 msw use codex:kimi-k2.5 # 只切 Codex 的模型
 msw model glm-4.7       # 当前 Agent 换模型
@@ -118,7 +120,9 @@ msw serve --port 8787
 
 ```bash
 msw provider presets
+msw provider ls
 msw provider add deepseek --key sk-xxx
+msw provider rm deepseek
 msw provider add custom --name local --base-url http://127.0.0.1:8000/v1 --key sk-local --wire-api responses --models grok-4.6
 msw profile add work
 msw profile bind work --agent codex --provider kimi --model kimi-k2.5

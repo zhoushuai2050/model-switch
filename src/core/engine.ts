@@ -227,10 +227,17 @@ export class Engine {
     return next;
   }
 
-  deleteProvider(id: string): void {
-    const provider = findProvider(id);
+  deleteProvider(id: string): Provider {
+    const exact = db.getProvider(id);
+    const named = db.listProviders().filter((item) => item.name.toLowerCase() === id.toLowerCase());
+    const provider = exact || named[0];
     if (!provider) throw new EngineError(`Unknown provider: ${id}`);
+    if (!exact && named.length > 1) {
+      const ids = named.map((item) => `  ${item.id}`).join('\n');
+      throw new EngineError(`多个供应商名为 ${id}，请用 id 删除:\n${ids}`);
+    }
     db.deleteProvider(provider.id);
+    return provider;
   }
 
   getAgentConfig(agentId: string): {
