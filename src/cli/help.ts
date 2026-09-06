@@ -1,7 +1,7 @@
 export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
 
 用法:
-  msw                         打开终端切换台
+  msw                         打开终端切换台（按 Agent 筛选供应商，与管理台一致）
   msw status                  查看当前 Agent、模型、Profile
   msw ls [providers|agents|profiles|models|mcp]
   msw providers               显示所有供应商

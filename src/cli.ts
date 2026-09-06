@@ -123,11 +123,19 @@ function list(kind: string): void {
       printProviders(engine.listProviders(), engine.listModels());
       return;
     case 'model':
-    case 'models':
-      for (const model of engine.listModels()) {
-        console.log(`${(model.alias || model.modelId).padEnd(22)} ${model.modelId.padEnd(28)} ${model.providerId}`);
+    case 'models': {
+      const providers = new Map(engine.listProviders().map((item) => [item.id, item]));
+      const models = engine.listModels();
+      if (!models.length) {
+        console.log('还没有模型。在管理台编辑供应商，或: msw provider add custom --models gpt-5.6-sol');
+        return;
+      }
+      for (const model of models) {
+        const provider = providers.get(model.providerId);
+        console.log(`${model.modelId.padEnd(28)} ${provider?.name || model.providerId}`);
       }
       return;
+    }
     case 'mcp':
       for (const server of engine.listMcp()) {
         console.log(`${server.name.padEnd(16)} ${server.transport.padEnd(8)} ${server.agents.join(',')}  ${server.command || server.url || ''}`);

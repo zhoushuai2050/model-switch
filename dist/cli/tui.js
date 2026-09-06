@@ -1,15 +1,18 @@
-import { engine } from "../core/engine.js";
+import { engine, protocolLabel, protocolsForAgent } from "../core/engine.js";
 import { color } from "./format.js";
+const ANSI = /\x1b\[[0-9;]*m/g;
 export async function runTui() {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         const status = engine.status();
         console.log(`${status.current?.id || 'none'}/${status.current?.model || '-'}`);
         return;
     }
-    let col = 1;
-    let agentIndex = 0;
-    let profileIndex = 0;
-    let message = 'Enter 切换 · ←/→ 栏 · r 启动 · q 退出';
+    const agents = () => engine.listAgents();
+    let col = 0;
+    let agentIndex = Math.max(0, agents().findIndex((item) => item.id === engine.status().state.currentAgent));
+    let providerIndex = 0;
+    let modelIndex = 0;
+    let message = '←/→ Agent  ↑/↓ 选择  Tab 切栏  Enter 启用  r 启动  q 退出';
     const restore = () => {
         process.stdin.setRawMode(false);
         process.stdout.write('\x1b[?25h\x1b[?1049l');
@@ -24,16 +27,74 @@ export async function runTui() {
     };
     process.on('SIGINT', onExit);
     process.on('SIGTERM', onExit);
+    const selectedAgent = () => {
+        const list = agents();
+        return list[Math.min(agentIndex, Math.max(0, list.length - 1))] || list[0];
+    };
+    const providersOf = () => {
+        const agent = selectedAgent();
+        return agent ? engine.listProvidersForAgent(agent.id) : [];
+    };
+    const modelsOf = (provider) => {
+        if (!provider)
+            return [];
+        return engine.listModels().filter((item) => item.providerId === provider.id);
+    };
+    const syncIndexes = (keepProvider = false) => {
+        const status = engine.status();
+        const live = status.agents.find((item) => item.id === selectedAgent()?.id);
+        const providers = providersOf();
+        if (!keepProvider) {
+            const current = providers.findIndex((item) => isCurrentProvider(item, live));
+            providerIndex = current >= 0 ? current : 0;
+        }
+        if (providerIndex >= providers.length)
+            providerIndex = Math.max(0, providers.length - 1);
+        const models = modelsOf(providers[providerIndex]);
+        const currentModel = models.findIndex((item) => item.modelId === live?.model);
+        modelIndex = currentModel >= 0 ? currentModel : 0;
+        if (modelIndex >= models.length)
+            modelIndex = Math.max(0, models.length - 1);
+    };
+    syncIndexes();
     const render = () => {
         const status = engine.status();
-        const agents = status.agents;
-        const profiles = engine.listProfiles();
-        if (agentIndex >= agents.length)
+        const agentList = agents();
+        if (agentIndex >= agentList.length)
             agentIndex = 0;
-        if (profileIndex >= profiles.length)
-            profileIndex = Math.max(0, profiles.length - 1);
-        const lines = buildScreen(agents, profiles, col, agentIndex, profileIndex, status.state.currentAgent, status.state.currentProfile, message);
+        const agent = selectedAgent();
+        const providers = providersOf();
+        if (providerIndex >= providers.length)
+            providerIndex = Math.max(0, providers.length - 1);
+        const provider = providers[providerIndex];
+        const models = modelsOf(provider);
+        if (modelIndex >= models.length)
+            modelIndex = Math.max(0, models.length - 1);
+        const live = status.agents.find((item) => item.id === agent?.id);
+        const lines = buildScreen({
+            agents: agentList,
+            agentIndex,
+            providers,
+            providerIndex,
+            models,
+            modelIndex,
+            col,
+            live,
+            currentAgent: status.state.currentAgent,
+            message,
+        });
         process.stdout.write('\x1b[H\x1b[J' + lines.join('\n'));
+    };
+    const selectAgent = (index) => {
+        const list = agents();
+        if (!list.length)
+            return;
+        agentIndex = (index + list.length) % list.length;
+        const agent = list[agentIndex];
+        engine.setAgent(agent.id);
+        col = 0;
+        syncIndexes();
+        message = `当前 Agent: ${agent.name}`;
     };
     render();
     await new Promise((resolve) => {
@@ -44,38 +105,60 @@ export async function runTui() {
                 resolve();
                 return;
             }
-            if (key === '\u001b[A') {
-                if (col === 0)
-                    agentIndex = Math.max(0, agentIndex - 1);
-                else
-                    profileIndex = Math.max(0, profileIndex - 1);
+            if (key === '\u001b[D' || key === 'h') {
+                selectAgent(agentIndex - 1);
             }
-            else if (key === '\u001b[B') {
-                if (col === 0)
-                    agentIndex += 1;
-                else
-                    profileIndex += 1;
+            else if (key === '\u001b[C' || key === 'l') {
+                selectAgent(agentIndex + 1);
             }
-            else if (key === '\u001b[D') {
-                col = 0;
+            else if (key >= '1' && key <= '4') {
+                selectAgent(Number(key) - 1);
             }
-            else if (key === '\u001b[C') {
-                col = 1;
+            else if (key === '\t') {
+                const providers = providersOf();
+                col = col === 0 && modelsOf(providers[providerIndex]).length ? 1 : 0;
+            }
+            else if (key === '\u001b[A' || key === 'k') {
+                if (col === 0) {
+                    providerIndex = Math.max(0, providerIndex - 1);
+                    syncIndexes(true);
+                }
+                else {
+                    modelIndex = Math.max(0, modelIndex - 1);
+                }
+            }
+            else if (key === '\u001b[B' || key === 'j') {
+                if (col === 0) {
+                    providerIndex += 1;
+                    syncIndexes(true);
+                }
+                else {
+                    modelIndex += 1;
+                }
             }
             else if (key === '\r' || key === '\n') {
                 try {
-                    if (col === 0) {
-                        const agent = engine.listAgents()[agentIndex];
-                        if (agent)
-                            engine.setAgent(agent.id);
-                        message = `当前 Agent: ${agent?.id}`;
+                    const agent = selectedAgent();
+                    const providers = providersOf();
+                    const provider = providers[providerIndex];
+                    const models = modelsOf(provider);
+                    const model = models[modelIndex];
+                    if (!agent) {
+                        message = '没有可选 Agent';
+                    }
+                    else if (!provider) {
+                        const need = protocolsForAgent(agent.id).map(protocolLabel).join(' / ');
+                        message = `当前 ${agent.name} 没有可用供应商，请添加带 ${need} 地址的供应商`;
+                    }
+                    else if (col === 1 && model) {
+                        const result = engine.setModel(model.id, { agent: agent.id });
+                        message = `已启用 ${provider.name} → ${result.model || model.modelId}`;
+                        syncIndexes(true);
                     }
                     else {
-                        const profile = engine.listProfiles()[profileIndex];
-                        if (profile) {
-                            const result = engine.use(profile.id);
-                            message = `已切换 ${profile.name} → ${result.applied.join(', ') || '无'} ${result.model || ''}`;
-                        }
+                        const result = engine.use(provider.id, { agent: agent.id });
+                        message = `已启用 ${provider.name} → ${result.model || models[0]?.modelId || ''}`;
+                        syncIndexes(true);
                     }
                 }
                 catch (error) {
@@ -94,39 +177,115 @@ export async function runTui() {
         process.stdout.on('resize', render);
     });
 }
-function buildScreen(agents, profiles, col, agentIndex, profileIndex, currentAgent, currentProfile, message = '') {
-    const width = process.stdout.columns || 80;
+function buildScreen(opts) {
+    const width = Math.max(60, process.stdout.columns || 80);
     const lines = [];
+    const agent = opts.agents[opts.agentIndex];
+    const provider = opts.providers[opts.providerIndex];
+    const need = agent ? protocolsForAgent(agent.id).map(protocolLabel).join(' / ') : '';
     lines.push(color.bold(color.amber(' MODEL SWITCH')) + color.dim('  本机 Agent / 模型切换台'));
-    lines.push(color.dim('─'.repeat(Math.min(width, 80))));
-    lines.push(`${col === 0 ? color.amber('▸ Agents') : color.dim('  Agents')}          ${col === 1 ? color.amber('▸ Profiles') : color.dim('  Profiles')}`);
-    const rows = Math.max(agents.length, profiles.length, 4);
-    for (let i = 0; i < rows; i++) {
-        const agent = agents[i];
-        const profile = profiles[i];
-        const leftSel = col === 0 && i === agentIndex;
-        const rightSel = col === 1 && i === profileIndex;
-        const left = agent
-            ? formatAgent(agent, currentAgent, leftSel)
-            : ' '.repeat(32);
-        const right = profile
-            ? formatProfile(profile, currentProfile, rightSel)
-            : '';
-        lines.push(`${left}  ${right}`);
+    lines.push(color.dim('─'.repeat(width)));
+    lines.push(buildAgentBar(opts.agents, opts.agentIndex, opts.currentAgent, width));
+    const currentProvider = opts.providers.find((item) => isCurrentProvider(item, opts.live));
+    const currentLabel = [
+        agent?.name || '-',
+        currentProvider?.name || opts.live?.providerLabel || '未配置供应商',
+        opts.live?.model || '未配置模型',
+    ].join(' · ');
+    lines.push(`${color.dim('当前')}  ${currentLabel}${opts.live?.installed ? '' : color.dim('  未安装')}`);
+    lines.push(`${color.dim('筛选')}  仅显示带 ${need || '对应协议'} 地址的供应商，与管理台一致`);
+    lines.push(color.dim('─'.repeat(width)));
+    const leftW = Math.min(42, Math.max(28, Math.floor(width * 0.52)));
+    const rightW = Math.max(18, width - leftW - 2);
+    const leftHead = opts.col === 0 ? color.amber('▸ 供应商') : color.dim('  供应商');
+    const rightHead = opts.col === 1 ? color.amber('▸ 模型') : color.dim('  模型');
+    lines.push(`${pad(leftHead, leftW)}${rightHead}`);
+    if (!opts.providers.length) {
+        lines.push(color.dim(`  当前 ${agent?.name || 'Agent'} 没有可用供应商`));
+        lines.push(color.dim(`  请添加带 ${need} 地址的供应商，或切换到其他 Agent`));
     }
-    lines.push(color.dim('─'.repeat(Math.min(width, 80))));
-    lines.push(message);
+    else {
+        const rows = Math.max(opts.providers.length, opts.models.length, 1);
+        for (let i = 0; i < rows; i++) {
+            const left = opts.providers[i]
+                ? formatProvider(opts.providers[i], opts.live, opts.col === 0 && i === opts.providerIndex, leftW)
+                : ' '.repeat(leftW);
+            const right = opts.models[i]
+                ? formatModel(opts.models[i], opts.live, opts.col === 1 && i === opts.modelIndex, rightW)
+                : '';
+            lines.push(`${pad(left, leftW)}${right}`);
+        }
+        if (provider) {
+            const url = agentUrl(provider, agent?.id);
+            lines.push(color.dim('─'.repeat(width)));
+            lines.push(color.dim(` ${provider.name}  ${url || '未配置当前 Agent 地址'}`));
+        }
+    }
+    lines.push(color.dim('─'.repeat(width)));
+    lines.push(opts.message);
     return lines;
 }
-function formatAgent(agent, current, selected) {
-    const mark = agent.id === current ? '●' : '○';
-    const body = `${mark} ${agent.id.padEnd(9)} ${(agent.model || '-').slice(0, 18).padEnd(18)}`;
-    const text = selected ? color.bold(color.amber(body)) : body;
-    return text.padEnd(48);
+function buildAgentBar(agents, index, current, width = 80) {
+    const parts = agents.map((agent, i) => {
+        const mark = agent.id === current ? '●' : '○';
+        const state = agent.installed ? '' : color.dim('未安装');
+        const body = `${mark}${agent.name}${state ? ` ${state}` : ''}`;
+        if (i === index)
+            return color.bold(color.amber(`[ ${body} ]`));
+        return color.dim(`  ${body}  `);
+    });
+    const bar = ` Agent  ${parts.join('')}`;
+    return visLen(bar) > width ? `${bar.slice(0, width - 1)}…` : bar;
 }
-function formatProfile(profile, current, selected) {
-    const mark = profile.id === current ? '●' : '○';
-    const models = profile.bindings.map((b) => b.modelId).slice(0, 2).join(',') || '-';
-    const body = `${mark} ${profile.name.padEnd(16)} ${models}`;
-    return selected ? color.bold(color.amber(body)) : body;
+function formatProvider(provider, live, selected, width) {
+    const current = isCurrentProvider(provider, live);
+    const key = provider.apiKey ? 'KEY' : '无KEY';
+    const tags = configuredProtocols(provider).map(protocolLabel).join(' ');
+    const mark = selected ? '▸' : ' ';
+    const badge = current ? '当前' : '  ';
+    const body = trunc(`${mark} ${provider.name}  ${badge}  ${key}  ${tags}`, width);
+    return selected ? color.bold(color.amber(body)) : current ? color.green(body) : body;
+}
+function formatModel(model, live, selected, width) {
+    const current = live?.model === model.modelId;
+    const mark = selected ? '▸' : ' ';
+    const badge = current ? ' ●' : '';
+    const body = trunc(`${mark} ${model.modelId}${badge}`, width);
+    return selected ? color.bold(color.amber(body)) : current ? color.green(body) : body;
+}
+function isCurrentProvider(provider, live) {
+    if (!live)
+        return false;
+    const urls = configuredProtocols(provider).map((item) => normalizeUrl(provider.protocols[item]?.baseUrl));
+    if (live.providerLabel && (live.providerLabel === provider.name || live.providerLabel === provider.id || urls.includes(normalizeUrl(live.providerLabel)))) {
+        return true;
+    }
+    if (live.baseUrl && urls.includes(normalizeUrl(live.baseUrl)))
+        return true;
+    return engine.listModels().some((item) => item.providerId === provider.id && item.modelId === live.model);
+}
+function configuredProtocols(provider) {
+    return ['openai', 'anthropic', 'gemini'].filter((item) => provider.protocols[item]?.baseUrl);
+}
+function agentUrl(provider, agent) {
+    if (!agent)
+        return '';
+    const protocol = protocolsForAgent(agent).find((item) => provider.protocols[item]?.baseUrl);
+    return protocol ? provider.protocols[protocol]?.baseUrl || '' : '';
+}
+function normalizeUrl(value) {
+    return (value || '').replace(/\/$/, '');
+}
+function visLen(value) {
+    return value.replace(ANSI, '').length;
+}
+function pad(value, width) {
+    const extra = width - visLen(value);
+    return extra > 0 ? value + ' '.repeat(extra) : value;
+}
+function trunc(value, width) {
+    if (visLen(value) <= width)
+        return value;
+    const plain = value.replace(ANSI, '');
+    return `${plain.slice(0, Math.max(1, width - 1))}…`;
 }

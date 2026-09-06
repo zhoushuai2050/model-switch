@@ -56,6 +56,34 @@ test('deleteProvider requires id when names collide', () => {
   assert.equal(engine.listProviders().map((item) => item.id).join(), second.id);
 });
 
+test('listProvidersForAgent filters by agent protocol like the web UI', () => {
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'claude-only',
+    apiKey: 'sk',
+    anthropicUrl: 'https://a.example',
+    models: ['claude-sonnet-4-6', 'claude-opus-4'],
+  });
+  engine.addProvider({
+    name: 'codex-only',
+    apiKey: 'sk',
+    openaiUrl: 'https://b.example/v1',
+    models: ['gpt-4.1'],
+  });
+  engine.addProvider({
+    name: 'both',
+    apiKey: 'sk',
+    openaiUrl: 'https://c.example/v1',
+    anthropicUrl: 'https://c.example',
+    models: ['shared'],
+  });
+  assert.deepEqual(engine.listProvidersForAgent('claude').map((item) => item.name).sort(), ['both', 'claude-only']);
+  assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.name).sort(), ['both', 'codex-only']);
+  assert.deepEqual(engine.listProvidersForAgent('gemini').map((item) => item.name), []);
+  const claudeModels = engine.getProvider(engine.listProvidersForAgent('claude').find((item) => item.name === 'claude-only')!.id).models.map((item) => item.modelId).sort();
+  assert.deepEqual(claudeModels, ['claude-opus-4', 'claude-sonnet-4-6']);
+});
+
 test('claude adapter writes anthropic env', () => {
   const engine = new Engine();
   const kimi = engine.addProvider({

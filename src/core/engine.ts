@@ -69,6 +69,12 @@ export class Engine {
     return db.listProviders();
   }
 
+  listProvidersForAgent(agent?: AgentId): Provider[] {
+    const id = agent && isAgentId(agent) ? agent : db.getState().currentAgent;
+    if (!id) return this.listProviders();
+    return this.listProviders().filter((item) => providerSupportsAgent(item, id));
+  }
+
   getProvider(id: string): { provider: Provider; models: ModelRow[] } {
     const provider = db.getProvider(id);
     if (!provider) throw new EngineError(`Unknown provider: ${id}`);
@@ -821,11 +827,19 @@ function modelsUrl(baseUrl: string, protocol: Protocol): string {
   return `${trimmed}/v1/models`;
 }
 
-function protocolsForAgent(agent?: AgentId): Protocol[] {
+export function protocolsForAgent(agent?: AgentId): Protocol[] {
   if (agent === 'claude') return ['anthropic'];
   if (agent === 'codex' || agent === 'opencode') return ['openai'];
   if (agent === 'gemini') return ['gemini'];
   return ['openai', 'anthropic', 'gemini'];
+}
+
+export function providerSupportsAgent(provider: Provider, agent?: AgentId): boolean {
+  return protocolsForAgent(agent).some((item) => Boolean(provider.protocols[item]?.baseUrl));
+}
+
+export function protocolLabel(protocol: Protocol): string {
+  return labelOf(protocol);
 }
 
 function labelOf(protocol: Protocol): string {

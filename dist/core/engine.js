@@ -43,6 +43,12 @@ export class Engine {
     listProviders() {
         return db.listProviders();
     }
+    listProvidersForAgent(agent) {
+        const id = agent && isAgentId(agent) ? agent : db.getState().currentAgent;
+        if (!id)
+            return this.listProviders();
+        return this.listProviders().filter((item) => providerSupportsAgent(item, id));
+    }
     getProvider(id) {
         const provider = db.getProvider(id);
         if (!provider)
@@ -736,7 +742,7 @@ function modelsUrl(baseUrl, protocol) {
         return `${trimmed}/models`;
     return `${trimmed}/v1/models`;
 }
-function protocolsForAgent(agent) {
+export function protocolsForAgent(agent) {
     if (agent === 'claude')
         return ['anthropic'];
     if (agent === 'codex' || agent === 'opencode')
@@ -744,6 +750,12 @@ function protocolsForAgent(agent) {
     if (agent === 'gemini')
         return ['gemini'];
     return ['openai', 'anthropic', 'gemini'];
+}
+export function providerSupportsAgent(provider, agent) {
+    return protocolsForAgent(agent).some((item) => Boolean(provider.protocols[item]?.baseUrl));
+}
+export function protocolLabel(protocol) {
+    return labelOf(protocol);
 }
 function labelOf(protocol) {
     if (protocol === 'anthropic')
