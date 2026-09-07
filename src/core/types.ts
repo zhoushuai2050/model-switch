@@ -79,6 +79,8 @@ export interface AgentLiveStatus {
   model?: string;
   baseUrl?: string;
   providerLabel?: string;
+  providerId?: string;
+  currentProviderId?: string;
 }
 
 export interface SwitchResult {
@@ -112,6 +114,12 @@ export function slug(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return s || 'item';
+}
+
+export function liveProviderKey(providerId: string, agent: 'codex' | 'opencode'): string {
+  const base = slug(providerId);
+  if (agent === 'codex') return base.replace(/-/g, '_') || 'custom';
+  return base.replace(/-/g, '') || 'custom';
 }
 
 export type PingStatus = 'running' | 'ok' | 'warn' | 'fail' | 'skip';

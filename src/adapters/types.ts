@@ -14,7 +14,7 @@ export interface Adapter {
   detect(): { installed: boolean; bin?: string };
   liveFiles(): string[];
   apply(payload: ApplyPayload): void;
-  readStatus(): { model?: string; baseUrl?: string; providerLabel?: string; configured: boolean };
+  readStatus(): { model?: string; baseUrl?: string; providerLabel?: string; providerId?: string; configured: boolean };
   sessionLaunch(payload: ApplyPayload, extraArgs: string[]): LaunchSpec;
   syncMcp?(servers: McpServer[]): void;
 }

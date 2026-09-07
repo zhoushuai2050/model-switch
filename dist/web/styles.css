@@ -289,6 +289,9 @@ button { cursor: pointer; }
 .btn:hover { border-color: var(--line-strong); background: var(--card); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: white; font-weight: 600; }
 .btn.primary:hover { filter: brightness(1.06); }
+.btn.success { background: var(--green); border-color: var(--green); color: #052e16; font-weight: 600; }
+.btn.success:hover { filter: brightness(1.06); }
+:root[data-theme="paper"] .btn.success { color: #fff; }
 .btn.ghost { background: transparent; }
 .btn.danger { color: var(--red); border-color: transparent; background: var(--red-soft); }
 .btn.sm { height: 28px; padding: 0 9px; font-size: 12px; }

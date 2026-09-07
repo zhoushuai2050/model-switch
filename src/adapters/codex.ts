@@ -4,7 +4,7 @@ import { backupFiles, readJson, readText, writeJson, atomicWrite } from '../core
 import { codexHome } from '../core/paths.ts';
 import { getTable, getTopLevel, setTopLevel, upsertTable } from '../core/toml.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
-import { now, slug } from '../core/types.ts';
+import { liveProviderKey } from '../core/types.ts';
 import type { Adapter, LaunchSpec } from './types.ts';
 import { findBinary } from './which.ts';
 
@@ -65,7 +65,7 @@ function authPath(): string {
 }
 
 function providerTableId(provider: Provider): string {
-  return slug(provider.id).replace(/-/g, '_') || 'custom';
+  return liveProviderKey(provider.id, 'codex');
 }
 
 function applyProviderTable(text: string, provider: Provider): { text: string; tableId: string } {
@@ -134,6 +134,7 @@ export const codexAdapter: Adapter = {
       model,
       baseUrl: typeof table?.base_url === 'string' ? table.base_url : undefined,
       providerLabel: typeof table?.name === 'string' ? table.name : providerId,
+      providerId,
     };
   },
   sessionLaunch(payload: ApplyPayload, extraArgs: string[]): LaunchSpec {

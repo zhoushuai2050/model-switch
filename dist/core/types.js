@@ -13,3 +13,9 @@ export function slug(value) {
         .replace(/^-+|-+$/g, '');
     return s || 'item';
 }
+export function liveProviderKey(providerId, agent) {
+    const base = slug(providerId);
+    if (agent === 'codex')
+        return base.replace(/-/g, '_') || 'custom';
+    return base.replace(/-/g, '') || 'custom';
+}

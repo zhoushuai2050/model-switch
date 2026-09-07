@@ -377,12 +377,13 @@ function frameRow(width: number, content: string): string {
 
 function isCurrentProvider(provider: Provider, live?: AgentLiveStatus): boolean {
   if (!live) return false;
+  if (live.currentProviderId) return live.currentProviderId === provider.id;
   const urls = configuredProtocols(provider).map((item) => normalizeUrl(provider.protocols[item]?.baseUrl));
-  if (live.providerLabel && (live.providerLabel === provider.name || live.providerLabel === provider.id || urls.includes(normalizeUrl(live.providerLabel)))) {
+  if (live.providerId && (live.providerId === provider.id || urls.includes(normalizeUrl(live.providerId)))) {
     return true;
   }
   if (live.baseUrl && urls.includes(normalizeUrl(live.baseUrl))) return true;
-  return engine.listModels().some((item) => item.providerId === provider.id && item.modelId === live.model);
+  return false;
 }
 
 function configuredProtocols(provider: Provider) {

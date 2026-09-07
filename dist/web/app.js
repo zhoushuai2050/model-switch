@@ -88,9 +88,7 @@ function modelsOf(providerId) {
 
 function isCurrentProvider(provider) {
   const live = agent();
-  if (!live) return false;
-  if (live.providerLabel && (live.providerLabel === provider.name || live.providerLabel === provider.id)) return true;
-  return modelsOf(provider.id).some((item) => item.modelId === live.model);
+  return Boolean(live?.currentProviderId && live.currentProviderId === provider.id);
 }
 
 function protocolsForApp(app = state.app) {
@@ -230,7 +228,7 @@ function renderProviders() {
         <button class="btn sm" data-edit="${provider.id}" type="button">查看/编辑</button>
         <button class="btn sm" data-ping="${provider.id}" type="button">测通</button>
         <button class="btn sm danger" data-del="${provider.id}" type="button">删除</button>
-        <button class="btn sm ${current ? '' : 'primary'}" data-use="${provider.id}" type="button">${current ? '使用中' : '启用'}</button>
+        <button class="btn sm ${current ? 'success' : 'primary'}" data-use="${provider.id}" type="button">${current ? '使用中' : '启用'}</button>
       </div>
     </article>`;
   }).join('')}</div>`;

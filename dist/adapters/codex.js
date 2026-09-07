@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { backupFiles, readJson, readText, writeJson, atomicWrite } from "../core/fsutil.js";
 import { codexHome } from "../core/paths.js";
 import { getTable, getTopLevel, setTopLevel, upsertTable } from "../core/toml.js";
-import { now, slug } from "../core/types.js";
+import { liveProviderKey } from "../core/types.js";
 import { findBinary } from "./which.js";
 function configPath() {
     return join(codexHome(), 'config.toml');
@@ -56,7 +56,7 @@ function authPath() {
     return join(codexHome(), 'auth.json');
 }
 function providerTableId(provider) {
-    return slug(provider.id).replace(/-/g, '_') || 'custom';
+    return liveProviderKey(provider.id, 'codex');
 }
 function applyProviderTable(text, provider) {
     const proto = provider.protocols.openai;
@@ -126,6 +126,7 @@ export const codexAdapter = {
             model,
             baseUrl: typeof table?.base_url === 'string' ? table.base_url : undefined,
             providerLabel: typeof table?.name === 'string' ? table.name : providerId,
+            providerId,
         };
     },
     sessionLaunch(payload, extraArgs) {

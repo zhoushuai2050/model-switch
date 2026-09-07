@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from '../core/fsutil.ts';
 import { opencodeHome } from '../core/paths.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
-import { now, slug } from '../core/types.ts';
+import { liveProviderKey } from '../core/types.ts';
 import type { Adapter, LaunchSpec } from './types.ts';
 import { findBinary } from './which.ts';
 
@@ -19,7 +19,7 @@ function configPath(): string {
 }
 
 function providerKey(provider: Provider): string {
-  return slug(provider.id).replace(/-/g, '') || 'custom';
+  return liveProviderKey(provider.id, 'opencode');
 }
 
 export const opencodeAdapter: Adapter = {
@@ -71,6 +71,7 @@ export const opencodeAdapter: Adapter = {
       model: model.includes('/') ? model.slice(model.indexOf('/') + 1) : model,
       baseUrl: entry?.options?.baseURL,
       providerLabel: entry?.name || provId,
+      providerId: provId || undefined,
     };
   },
   sessionLaunch(payload: ApplyPayload, extraArgs: string[]): LaunchSpec {

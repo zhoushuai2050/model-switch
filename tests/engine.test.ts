@@ -118,6 +118,34 @@ name = "crs"
   assert.match(text, /model = "grok-4.6"/);
 });
 
+test('codex current provider follows model_provider id, not shared model names', () => {
+  const engine = new Engine();
+  const first = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-a',
+    openaiUrl: 'https://a.example/v1',
+    models: ['gpt-shared'],
+  });
+  const second = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-b',
+    openaiUrl: 'https://b.example/v1',
+    models: ['gpt-shared'],
+  });
+  engine.setAgent('codex');
+  engine.use(first.id);
+  const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');
+  const tableId = first.id.replace(/-/g, '_');
+  assert.match(text, new RegExp(`model_provider = "${tableId}"`));
+  const live = engine.listAgents().find((item) => item.id === 'codex');
+  assert.equal(live?.currentProviderId, first.id);
+  assert.notEqual(live?.currentProviderId, second.id);
+
+  engine.use(second.id);
+  const next = engine.listAgents().find((item) => item.id === 'codex');
+  assert.equal(next?.currentProviderId, second.id);
+});
+
 test('codex apply rewrites leftover wire_api chat', () => {
   writeFileSync(
     join(root, '.codex', 'config.toml'),

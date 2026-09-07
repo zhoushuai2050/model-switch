@@ -5,7 +5,7 @@ import { adapters, getAdapter } from "../adapters/index.js";
 import * as db from "./db.js";
 import { atomicWrite, backupFiles, readText } from "./fsutil.js";
 import { getPreset, PRESETS } from "./presets.js";
-import { AGENT_IDS, isAgentId, now, slug, } from "./types.js";
+import { AGENT_IDS, isAgentId, now, liveProviderKey, slug, } from "./types.js";
 export class EngineError extends Error {
     constructor(message) {
         super(message);
@@ -37,6 +37,8 @@ export class Engine {
                 model: live.model,
                 baseUrl: live.baseUrl,
                 providerLabel: live.providerLabel,
+                providerId: live.providerId,
+                currentProviderId: matchLiveProvider(adapter.id, live)?.id,
             };
         });
     }
@@ -753,6 +755,27 @@ export function protocolsForAgent(agent) {
 }
 export function providerSupportsAgent(provider, agent) {
     return protocolsForAgent(agent).some((item) => Boolean(provider.protocols[item]?.baseUrl));
+}
+function matchLiveProvider(agentId, live) {
+    const providers = db.listProviders();
+    if (agentId === 'codex' && live.providerId) {
+        const key = live.providerId;
+        return providers.find((item) => liveProviderKey(item.id, 'codex') === key || item.id === key);
+    }
+    if (agentId === 'opencode' && live.providerId) {
+        const key = live.providerId;
+        return providers.find((item) => liveProviderKey(item.id, 'opencode') === key || item.id === key);
+    }
+    const url = (live.baseUrl || '').replace(/\/$/, '');
+    if (!url)
+        return undefined;
+    const hits = providers.filter((item) => Object.values(item.protocols).some((cfg) => (cfg?.baseUrl || '').replace(/\/$/, '') === url));
+    if (hits.length === 1)
+        return hits[0];
+    if (live.providerLabel) {
+        return hits.find((item) => item.name === live.providerLabel || item.id === live.providerLabel);
+    }
+    return undefined;
 }
 export function protocolLabel(protocol) {
     return labelOf(protocol);

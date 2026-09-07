@@ -2,13 +2,13 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from "../core/fsutil.js";
 import { opencodeHome } from "../core/paths.js";
-import { now, slug } from "../core/types.js";
+import { liveProviderKey } from "../core/types.js";
 import { findBinary } from "./which.js";
 function configPath() {
     return join(opencodeHome(), 'opencode.json');
 }
 function providerKey(provider) {
-    return slug(provider.id).replace(/-/g, '') || 'custom';
+    return liveProviderKey(provider.id, 'opencode');
 }
 export const opencodeAdapter = {
     id: 'opencode',
@@ -61,6 +61,7 @@ export const opencodeAdapter = {
             model: model.includes('/') ? model.slice(model.indexOf('/') + 1) : model,
             baseUrl: entry?.options?.baseURL,
             providerLabel: entry?.name || provId,
+            providerId: provId || undefined,
         };
     },
     sessionLaunch(payload, extraArgs) {
