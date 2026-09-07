@@ -1,4 +1,5 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --disable-warning=ExperimentalWarning
+import "./core/silence-sqlite-warning.js";
 import { engine, EngineError } from "./core/engine.js";
 import { HELP, HELP_CUSTOM } from "./cli/help.js";
 import { flag, flagList, parseArgv } from "./cli/parse.js";
@@ -24,6 +25,7 @@ async function dispatch() {
     switch (args.cmd) {
         case '':
             await runTui();
+            process.exit(0);
             return;
         case 'status': {
             const status = engine.status();

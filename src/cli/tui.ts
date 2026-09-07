@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { engine, protocolLabel, protocolsForAgent } from '../core/engine.ts';
 import type { AgentId, AgentLiveStatus, ModelRow, Provider } from '../core/types.ts';
 import { color } from './format.ts';
@@ -19,9 +20,28 @@ export async function runTui(): Promise<void> {
   let modelIndex = 0;
   let message = '←/→ Agent  ↑/↓ 选择  Tab 切栏  Enter 启用  r 启动  q 退出';
 
+  let restored = false;
   const restore = () => {
-    process.stdin.setRawMode(false);
-    process.stdout.write('\x1b[?25h\x1b[?1049l');
+    if (restored) return;
+    restored = true;
+    process.stdin.removeAllListeners('data');
+    process.stdout.removeAllListeners('resize');
+    try {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    } catch {}
+    try {
+      process.stdin.pause();
+    } catch {}
+    try {
+      process.stdout.write('\x1b[?25h\x1b[?1049l\x1b[0m');
+    } catch {}
+    try {
+      execSync('stty sane < /dev/tty', { stdio: 'ignore' });
+    } catch {}
+  };
+  const quit = (code = 0) => {
+    restore();
+    process.exit(code);
   };
 
   process.stdout.write('\x1b[?1049h\x1b[?25l');
@@ -29,12 +49,9 @@ export async function runTui(): Promise<void> {
   process.stdin.resume();
   process.stdin.setEncoding('utf8');
 
-  const onExit = () => {
-    restore();
-    process.exit(0);
-  };
-  process.on('SIGINT', onExit);
-  process.on('SIGTERM', onExit);
+  process.on('SIGINT', () => quit(0));
+  process.on('SIGTERM', () => quit(0));
+  process.on('exit', restore);
 
   const selectedAgent = (): AgentLiveStatus => {
     const list = agents();
@@ -110,9 +127,8 @@ export async function runTui(): Promise<void> {
   await new Promise<void>((resolve) => {
     process.stdin.on('data', (chunk: string) => {
       const key = String(chunk);
-      if (key === '\u0003' || key === 'q') {
-        restore();
-        resolve();
+      if (key === '\u0003' || key === 'q' || key === 'Q') {
+        quit(0);
         return;
       }
       if (key === '\u001b[D' || key === 'h') {
@@ -166,7 +182,6 @@ export async function runTui(): Promise<void> {
         restore();
         const spec = engine.launch();
         engine.spawn(spec);
-        resolve();
         return;
       }
       render();

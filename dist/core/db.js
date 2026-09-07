@@ -1,9 +1,10 @@
 import "./silence-sqlite-warning.js";
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { dbPath } from "./paths.js";
 import { AGENT_IDS } from "./types.js";
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 let singleton = null;
 export function openDb(path = dbPath()) {
     mkdirSync(dirname(path), { recursive: true });

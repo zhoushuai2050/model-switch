@@ -1,5 +1,5 @@
 import './silence-sqlite-warning.ts';
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { dbPath } from './paths.ts';
@@ -17,10 +17,13 @@ import type {
 import { AGENT_IDS } from './types.ts';
 
 type Row = Record<string, unknown>;
+type SqliteDatabase = import('node:sqlite').DatabaseSync;
 
-let singleton: DatabaseSync | null = null;
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
-export function openDb(path = dbPath()): DatabaseSync {
+let singleton: SqliteDatabase | null = null;
+
+export function openDb(path = dbPath()): SqliteDatabase {
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL');
@@ -29,7 +32,7 @@ export function openDb(path = dbPath()): DatabaseSync {
   return db;
 }
 
-export function getDb(): DatabaseSync {
+export function getDb(): SqliteDatabase {
   if (!singleton) singleton = openDb();
   return singleton;
 }
@@ -45,7 +48,7 @@ export function resetDbCache(): void {
   singleton = null;
 }
 
-function migrate(db: DatabaseSync): void {
+function migrate(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS providers (
       id TEXT PRIMARY KEY,

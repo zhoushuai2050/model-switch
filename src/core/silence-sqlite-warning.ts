@@ -1,12 +1,19 @@
-const original = process.emitWarning.bind(process);
-const patched = process.emitWarning as typeof process.emitWarning & { __mswSqliteSilenced?: boolean };
-if (!patched.__mswSqliteSilenced) {
-  const emitWarning = ((warning: unknown, ...args: unknown[]) => {
+const emitWarning = process.emitWarning.bind(process) as typeof process.emitWarning & {
+  __mswSqliteSilenced?: boolean;
+};
+if (!emitWarning.__mswSqliteSilenced) {
+  const wrapped = ((warning: unknown, ...args: unknown[]) => {
     if (isSqliteExperimentalWarning(warning, args)) return;
-    return original(warning as Parameters<typeof process.emitWarning>[0], ...(args as []));
+    return emitWarning(warning as Parameters<typeof process.emitWarning>[0], ...(args as []));
   }) as typeof process.emitWarning & { __mswSqliteSilenced?: boolean };
-  emitWarning.__mswSqliteSilenced = true;
-  process.emitWarning = emitWarning;
+  wrapped.__mswSqliteSilenced = true;
+  process.emitWarning = wrapped;
+
+  const emit = process.emit.bind(process) as (...args: unknown[]) => boolean;
+  process.emit = ((event: string | symbol, ...args: unknown[]) => {
+    if (event === 'warning' && isSqliteExperimentalWarning(args[0], args.slice(1))) return false;
+    return emit(event, ...args);
+  }) as typeof process.emit;
 }
 
 function isSqliteExperimentalWarning(warning: unknown, args: unknown[]): boolean {

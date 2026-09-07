@@ -29,9 +29,9 @@ function chmodBins() {
     if (!existsSync(file)) continue;
     if (rel === 'dist/cli.js') {
       let code = readFileSync(file, 'utf8');
-      if (!code.startsWith('#!')) {
-        writeFileSync(file, '#!/usr/bin/env node\n' + code);
-      }
+      const shebang = '#!/usr/bin/env -S node --disable-warning=ExperimentalWarning\n';
+      if (code.startsWith('#!')) code = code.replace(/^#!.*\n/, '');
+      writeFileSync(file, shebang + code);
     }
     chmodSync(file, 0o755);
   }

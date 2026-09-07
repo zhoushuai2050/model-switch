@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './core/silence-sqlite-warning.ts';
 import { engine, EngineError } from './core/engine.ts';
 import { HELP, HELP_CUSTOM } from './cli/help.ts';
 import { flag, flagList, parseArgv } from './cli/parse.ts';
@@ -27,6 +28,7 @@ async function dispatch(): Promise<void> {
   switch (args.cmd) {
     case '':
       await runTui();
+      process.exit(0);
       return;
     case 'status': {
       const status = engine.status();

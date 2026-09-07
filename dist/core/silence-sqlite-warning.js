@@ -1,13 +1,18 @@
-const original = process.emitWarning.bind(process);
-const patched = process.emitWarning;
-if (!patched.__mswSqliteSilenced) {
-    const emitWarning = ((warning, ...args) => {
+const emitWarning = process.emitWarning.bind(process);
+if (!emitWarning.__mswSqliteSilenced) {
+    const wrapped = ((warning, ...args) => {
         if (isSqliteExperimentalWarning(warning, args))
             return;
-        return original(warning, ...args);
+        return emitWarning(warning, ...args);
     });
-    emitWarning.__mswSqliteSilenced = true;
-    process.emitWarning = emitWarning;
+    wrapped.__mswSqliteSilenced = true;
+    process.emitWarning = wrapped;
+    const emit = process.emit.bind(process);
+    process.emit = ((event, ...args) => {
+        if (event === 'warning' && isSqliteExperimentalWarning(args[0], args.slice(1)))
+            return false;
+        return emit(event, ...args);
+    });
 }
 function isSqliteExperimentalWarning(warning, args) {
     const parts = [];
