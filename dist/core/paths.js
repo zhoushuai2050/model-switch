@@ -31,3 +31,7 @@ export function opencodeHome() {
     const xdg = process.env.XDG_CONFIG_HOME || join(homeDir(), '.config');
     return process.env.OPENCODE_CONFIG_DIR || join(xdg, 'opencode');
 }
+export function opencodeDataHome() {
+    const xdg = process.env.XDG_DATA_HOME || join(homeDir(), '.local', 'share');
+    return process.env.OPENCODE_DATA_DIR || join(xdg, 'opencode');
+}

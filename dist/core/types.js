@@ -19,3 +19,13 @@ export function liveProviderKey(providerId, agent) {
         return base.replace(/-/g, '_') || 'custom';
     return base.replace(/-/g, '') || 'custom';
 }
+export function payloadModelIds(payload) {
+    const extra = payload.extra?.models;
+    const listed = Array.isArray(extra)
+        ? extra.filter((item) => typeof item === 'string' && item.trim().length > 0)
+        : [];
+    const models = listed.length ? [...listed] : payload.model ? [payload.model] : [];
+    if (payload.model && !models.includes(payload.model))
+        models.unshift(payload.model);
+    return [...new Set(models)];
+}

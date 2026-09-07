@@ -1,9 +1,8 @@
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { backupFiles, readJson, readText, writeJson, atomicWrite } from "../core/fsutil.js";
+import { backupFiles, readText, writeJson, atomicWrite } from "../core/fsutil.js";
 import { codexHome } from "../core/paths.js";
-import { getTable, getTopLevel, setTopLevel, upsertTable } from "../core/toml.js";
-import { liveProviderKey } from "../core/types.js";
+import { getTable, getTopLevel, removeTable, setTopLevel, upsertTable } from "../core/toml.js";
+import { liveProviderKey, payloadModelIds } from "../core/types.js";
 import { findBinary } from "./which.js";
 function configPath() {
     return join(codexHome(), 'config.toml');
@@ -12,16 +11,6 @@ function catalogPath() {
     return join(codexHome(), 'msw-model-catalog.json');
 }
 const CATALOG_REL = 'msw-model-catalog.json';
-function catalogModels(payload) {
-    const extra = payload.extra?.models;
-    const listed = Array.isArray(extra)
-        ? extra.filter((item) => typeof item === 'string' && item.trim().length > 0)
-        : [];
-    const models = listed.length ? [...listed] : [payload.model];
-    if (payload.model && !models.includes(payload.model))
-        models.unshift(payload.model);
-    return [...new Set(models)];
-}
 function writeModelCatalog(models) {
     const entries = models.map((slug, index) => ({
         slug,
@@ -52,9 +41,6 @@ function writeModelCatalog(models) {
     }));
     writeJson(catalogPath(), { models: entries });
 }
-function authPath() {
-    return join(codexHome(), 'auth.json');
-}
 function providerTableId(provider) {
     return liveProviderKey(provider.id, 'codex');
 }
@@ -63,31 +49,36 @@ function applyProviderTable(text, provider) {
     if (!proto)
         throw new Error(`Provider ${provider.id} has no OpenAI protocol for Codex`);
     const tableId = providerTableId(provider);
+    const useEnv = proto.authMode === 'env_key' && Boolean(proto.envKey);
     const entries = {
         name: provider.name,
         base_url: proto.baseUrl,
         wire_api: 'responses',
-        requires_openai_auth: true,
+        requires_openai_auth: false,
     };
-    // env_key makes Codex read a process env var and ignore auth.json.
-    // API keys are stored in ~/.codex/auth.json, same as official/apikey setups.
-    if (proto.authMode === 'env_key' && proto.envKey) {
+    if (useEnv) {
         entries.env_key = proto.envKey;
-        entries.requires_openai_auth = false;
     }
-    const next = upsertTable(text, `model_providers.${tableId}`, entries);
+    else if (provider.apiKey) {
+        // OpenCode keeps the key on the provider (`options.apiKey`). Codex's equivalent
+        // is experimental_bearer_token; auth.json is only for official ChatGPT login.
+        entries.experimental_bearer_token = provider.apiKey;
+    }
+    let next = upsertTable(text, `model_providers.${tableId}`, entries);
+    const headerTable = `model_providers.${tableId}.http_headers`;
+    if (!useEnv && provider.apiKey) {
+        // OpenCode `options.headers` analog; also works if an older Codex ignores the token field.
+        next = upsertTable(next, headerTable, {
+            Authorization: `Bearer ${provider.apiKey}`,
+        });
+    }
+    else {
+        next = removeTable(next, headerTable);
+    }
     return { text: sanitizeWireApi(next), tableId };
 }
 function sanitizeWireApi(text) {
     return text.replace(/^wire_api\s*=\s*"chat"\s*$/gm, 'wire_api = "responses"');
-}
-function writeAuth(apiKey) {
-    const auth = readJson(authPath()) || {};
-    if (apiKey)
-        auth.OPENAI_API_KEY = apiKey;
-    if (!auth.auth_mode)
-        auth.auth_mode = 'apikey';
-    writeJson(authPath(), auth, 0o600);
 }
 export const codexAdapter = {
     id: 'codex',
@@ -99,11 +90,11 @@ export const codexAdapter = {
         return { installed: Boolean(bin), bin };
     },
     liveFiles() {
-        return [configPath(), authPath(), catalogPath()];
+        return [configPath(), catalogPath()];
     },
     apply(payload) {
         backupFiles('codex', this.liveFiles());
-        const models = catalogModels(payload);
+        const models = payloadModelIds(payload);
         writeModelCatalog(models);
         let text = readText(configPath()) || '';
         const applied = applyProviderTable(text, payload.provider);
@@ -111,8 +102,6 @@ export const codexAdapter = {
         text = setTopLevel(text, 'model', payload.model);
         text = setTopLevel(text, 'model_catalog_json', CATALOG_REL);
         atomicWrite(configPath(), text.endsWith('\n') ? text : `${text}\n`);
-        if (payload.provider.apiKey)
-            writeAuth(payload.provider.apiKey);
     },
     readStatus() {
         const text = readText(configPath());

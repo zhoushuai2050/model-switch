@@ -174,9 +174,9 @@ wire_api = "chat"
 });
 
 
-test('codex apply stores key in auth.json and does not write env_key', () => {
+test('codex apply stores key on the provider like OpenCode, not in auth.json', () => {
   const engine = new Engine();
-  engine.addProvider({
+  const created = engine.addProvider({
     name: 'relay',
     apiKey: 'sk-secret-key',
     openaiUrl: 'https://relay.example/v1',
@@ -185,10 +185,53 @@ test('codex apply stores key in auth.json and does not write env_key', () => {
   engine.setAgent('codex');
   engine.use('relay');
   const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');
+  const tableId = created.id.replace(/-/g, '_');
   assert.doesNotMatch(text, /env_key/);
-  assert.match(text, /requires_openai_auth = true/);
-  const auth = JSON.parse(readFileSync(join(root, '.codex', 'auth.json'), 'utf8'));
-  assert.equal(auth.OPENAI_API_KEY, 'sk-secret-key');
+  assert.match(text, /requires_openai_auth = false/);
+  assert.match(text, /experimental_bearer_token = "sk-secret-key"/);
+  assert.match(text, new RegExp(`\\[model_providers\\.${tableId}\\.http_headers\\]`));
+  assert.match(text, /Authorization = "Bearer sk-secret-key"/);
+  assert.equal(existsSync(join(root, '.codex', 'auth.json')), false);
+});
+
+test('opencode apply writes provider-scoped models, npm, and credentials', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-oc',
+    openaiUrl: 'https://relay.example/v1',
+    wireApi: 'responses',
+    models: ['gpt-5.6-sol', 'deepseek-v4-flash'],
+  });
+  engine.setAgent('opencode');
+  engine.use('opencode:gpt-5.6-sol');
+  const key = created.id.replace(/-/g, '');
+  const config = JSON.parse(readFileSync(join(root, '.config', 'opencode', 'opencode.json'), 'utf8'));
+  assert.equal(config.model, `${key}/gpt-5.6-sol`);
+  assert.equal(config.provider[key].npm, '@ai-sdk/openai');
+  assert.equal(config.provider[key].options.baseURL, 'https://relay.example/v1');
+  assert.equal(config.provider[key].options.apiKey, 'sk-oc');
+  assert.deepEqual(Object.keys(config.provider[key].models).sort(), ['deepseek-v4-flash', 'gpt-5.6-sol']);
+  const auth = JSON.parse(readFileSync(join(root, '.local', 'share', 'opencode', 'auth.json'), 'utf8'));
+  assert.equal(auth[key].type, 'api');
+  assert.equal(auth[key].key, 'sk-oc');
+});
+
+test('opencode apply uses openai-compatible npm for chat wire api', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'kimi-relay',
+    apiKey: 'sk-kimi',
+    openaiUrl: 'https://api.moonshot.cn/v1',
+    wireApi: 'chat',
+    models: ['kimi-k2.5'],
+  });
+  engine.setAgent('opencode');
+  engine.use('kimi-relay');
+  const key = created.id.replace(/-/g, '');
+  const config = JSON.parse(readFileSync(join(root, '.config', 'opencode', 'opencode.json'), 'utf8'));
+  assert.equal(config.provider[key].npm, '@ai-sdk/openai-compatible');
+  assert.equal(config.model, `${key}/kimi-k2.5`);
 });
 
 

@@ -1,14 +1,24 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from "../core/fsutil.js";
-import { opencodeHome } from "../core/paths.js";
-import { liveProviderKey } from "../core/types.js";
+import { opencodeDataHome, opencodeHome } from "../core/paths.js";
+import { liveProviderKey, payloadModelIds } from "../core/types.js";
 import { findBinary } from "./which.js";
 function configPath() {
     return join(opencodeHome(), 'opencode.json');
 }
+function authPath() {
+    return join(opencodeDataHome(), 'auth.json');
+}
 function providerKey(provider) {
     return liveProviderKey(provider.id, 'opencode');
+}
+function writeAuth(providerId, apiKey) {
+    if (!apiKey)
+        return;
+    const auth = readJson(authPath()) || {};
+    auth[providerId] = { type: 'api', key: apiKey };
+    writeJson(authPath(), auth, 0o600);
 }
 export const opencodeAdapter = {
     id: 'opencode',
@@ -20,10 +30,10 @@ export const opencodeAdapter = {
         return { installed: Boolean(bin), bin };
     },
     liveFiles() {
-        return [configPath(), join(opencodeHome(), 'AGENTS.md')];
+        return [configPath(), authPath(), join(opencodeHome(), 'AGENTS.md')];
     },
     apply(payload) {
-        backupFiles('opencode', [configPath()]);
+        backupFiles('opencode', this.liveFiles());
         const proto = payload.provider.protocols.openai;
         if (!proto)
             throw new Error(`Provider ${payload.provider.id} has no OpenAI protocol for OpenCode`);
@@ -31,23 +41,27 @@ export const opencodeAdapter = {
         const key = providerKey(payload.provider);
         const providers = { ...(config.provider || {}) };
         const current = providers[key] || {};
+        const models = {};
+        for (const id of payloadModelIds(payload))
+            models[id] = { name: id };
+        // /v1/responses uses the OpenAI SDK; chat-completions uses openai-compatible.
+        const npm = proto.wireApi === 'chat' ? '@ai-sdk/openai-compatible' : '@ai-sdk/openai';
         providers[key] = {
             ...current,
-            npm: current.npm || '@ai-sdk/openai-compatible',
+            npm,
             name: payload.provider.name,
             options: {
                 ...(current.options || {}),
                 baseURL: proto.baseUrl,
                 apiKey: payload.provider.apiKey,
             },
-            models: {
-                ...(current.models || {}),
-                [payload.model]: { name: payload.model },
-            },
+            models,
         };
+        config.$schema = config.$schema || 'https://opencode.ai/config.json';
         config.provider = providers;
         config.model = `${key}/${payload.model}`;
         writeJson(configPath(), config);
+        writeAuth(key, payload.provider.apiKey);
     },
     readStatus() {
         const config = readJson(configPath());

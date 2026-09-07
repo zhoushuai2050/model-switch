@@ -52,6 +52,7 @@ export const HELP_CUSTOM = `完全自定义中转
 
 Codex 新版本只认 wire_api = responses，chat 会在切换时自动改掉。
 --base-url 一般要带到 /v1。
+密钥写在该供应商自己的 [model_providers] 段里（和 OpenCode 一样），不改全局 auth.json。
 
 ────────────────────────────────
 同一家中转给 Codex + Claude

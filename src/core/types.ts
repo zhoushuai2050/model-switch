@@ -100,6 +100,16 @@ export function liveProviderKey(providerId: string, agent: 'codex' | 'opencode')
   return base.replace(/-/g, '') || 'custom';
 }
 
+export function payloadModelIds(payload: ApplyPayload): string[] {
+  const extra = payload.extra?.models;
+  const listed = Array.isArray(extra)
+    ? extra.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  const models = listed.length ? [...listed] : payload.model ? [payload.model] : [];
+  if (payload.model && !models.includes(payload.model)) models.unshift(payload.model);
+  return [...new Set(models)];
+}
+
 export type PingStatus = 'running' | 'ok' | 'warn' | 'fail' | 'skip';
 
 export interface PingStep {

@@ -72,7 +72,7 @@ if (!warningAlreadyDisabled()) {
   if (!existsSync(cli)) {
     restoreTerminal();
     console.error('model-switch: missing dist/cli.js');
-    console.error('Reinstall: npm uninstall -g model-switch && npm i -g github:zhoushuai2050/model-switch');
+    console.error('Reinstall: npm uninstall -g model-switch && npm i -g https://github.com/zhoushuai2050/model-switch/archive/refs/heads/main.tar.gz --omit=dev --ignore-scripts --registry=https://registry.npmjs.org/');
     process.exit(1);
   }
 

@@ -8,52 +8,50 @@
 
 需要 **Node.js 22+**。本工具是本机 CLI，不用编译、不用注册账号。
 
-推荐先克隆到固定目录，再全局安装。不要用 `npm i -g github:...`：部分 npm 会链到临时 git 目录，装完文件就没了。
+从 GitHub 的 tar 包全局安装（Linux / macOS / Windows 同一条命令）。不要 `git clone`，也不要 `npm i -g github:...`：npm 会把全局命令链到临时 git 目录，装完目录被删，`msw` 就坏了。也不要 `npm i -g model-switch`：npm 上这个名字是别人的包。
 
 ```bash
-cd ~
-git clone https://github.com/zhoushuai2050/model-switch.git ~/.model-switch/app
-cd ~/.model-switch/app
-npm i -g . --omit=dev --ignore-scripts \
-  --registry=https://registry.npmjs.org/ \
-  --replace-registry-host=never
-hash -r
-msw provider add kimi --key sk-xxx
+npm i -g https://github.com/zhoushuai2050/model-switch/archive/refs/heads/main.tar.gz \
+  --omit=dev --ignore-scripts \
+  --registry=https://registry.npmjs.org/
+```
+
+Linux / macOS 再执行 `hash -r`。检查：
+
+```bash
+msw help
 msw status
 ```
 
-更新：
+更新：再装一遍即可，不用在本机留一份仓库。
 
 ```bash
-cd ~/.model-switch/app
-git pull
-npm i -g . --omit=dev --ignore-scripts \
-  --registry=https://registry.npmjs.org/ \
-  --replace-registry-host=never
-hash -r
-msw help
+npm uninstall -g model-switch
+npm i -g https://github.com/zhoushuai2050/model-switch/archive/refs/heads/main.tar.gz \
+  --omit=dev --ignore-scripts \
+  --registry=https://registry.npmjs.org/
 ```
 
-如果你是直接从仓库目录里的 `bin/msw` 运行，`git pull` 不会自动更新依赖；请额外执行：
+`--omit=dev` 不装 TypeScript；`--ignore-scripts` 跳过构建（包里已带 `dist/`）。依赖 `undici` 会从 npm 安装，给管理台测通走 `HTTP_PROXY` / `HTTPS_PROXY`；没配代理时回退到 Node 内置 `fetch`。
 
-```bash
-cd ~/.model-switch/app
-npm install --omit=dev --ignore-scripts \
-  --registry=https://registry.npmjs.org/ \
-  --replace-registry-host=never
-```
+### 系统支持
 
-其中 `undici` 用于在设置 `HTTP_PROXY` / `HTTPS_PROXY` 时让管理台测通请求复用代理。未配置代理时，程序也可以回退到 Node.js 内置 `fetch`；配置了代理则需要确保依赖已经安装。
+| | Linux / macOS | Windows |
+|---|---|---|
+| `msw` 命令、管理台、加供应商、`msw use` 写配置 | 支持 | 支持 |
+| 终端 TUI（`msw`） | 支持 | Windows Terminal 一般可用；退出时 `stty` 无效，老控制台可能残留下一屏状态 |
+| `msw run` 直接拉起 Agent | 支持 | 可能失败（`codex.cmd` 等需 `shell`）；建议 `msw use` 后新开终端自己跑 `codex` / `claude` |
+| Agent live 路径 | `~/.codex`、`~/.claude`、`~/.gemini`、`~/.config/opencode` | `%USERPROFILE%\.codex` 等；OpenCode 仍写 `%USERPROFILE%\.config\opencode` |
 
-也可以只克隆、不全局安装：
+数据始终在 `~/.model-switch/`（Windows 为 `%USERPROFILE%\.model-switch`），和安装位置无关。
+
+只想从源码开发时才 clone：
 
 ```bash
 git clone https://github.com/zhoushuai2050/model-switch.git
 cd model-switch
-npm install \
-  --registry=https://registry.npmjs.org/ \
-  --replace-registry-host=never
-node dist/cli.js provider add kimi --key sk-xxx
+npm install --registry=https://registry.npmjs.org/
+node dist/cli.js status
 ```
 
 加一个渠道并切过去（预设或自定义中转二选一）：
@@ -109,12 +107,14 @@ msw serve --port 8787
 |---|---|
 | `~/.model-switch/model-switch.db` | 唯一真相源（SQLite） |
 | `~/.model-switch/backups/` | live 配置备份，每个 Agent 保留 10 份 |
-| Codex live | `$CODEX_HOME/config.toml`、`auth.json` |
+| Codex live | `$CODEX_HOME/config.toml`、`msw-model-catalog.json` |
 | Claude live | `~/.claude/settings.json` |
 | Gemini live | `~/.gemini/.env` |
-| OpenCode live | `~/.config/opencode/opencode.json` |
+| OpenCode live | `~/.config/opencode/opencode.json`、`~/.local/share/opencode/auth.json` |
 
 切换时做原子写，不会抹掉 Codex 的 `[projects]` 等无关段落。
+
+第三方渠道按 OpenCode 的方式写入：密钥和模型都挂在该供应商自己的配置上。Codex 用 `[model_providers.<id>]` 的 `experimental_bearer_token` / `http_headers`，**不会**改全局 `auth.json`（那是官方 ChatGPT/OpenAI 登录）。OpenCode 则写 `provider.<id>.options.apiKey` 和对应的 `models`。
 
 ## 常用命令
 
@@ -152,7 +152,7 @@ msw provider add custom \
 msw use local
 ```
 
-Codex 新版本只认 `wire_api = "responses"`，旧的 `chat` 会在切换时自动改掉。`--base-url` 一般要带到 `/v1`。
+Codex 新版本只认 `wire_api = "responses"`，旧的 `chat` 会在切换时自动改掉。`--base-url` 一般要带到 `/v1`。密钥写在该供应商自己的 `[model_providers]` 段，对齐 OpenCode 的 `provider.<id>.options.apiKey`，不改全局 `auth.json`。
 
 ### 同一家中转给 Codex + Claude
 

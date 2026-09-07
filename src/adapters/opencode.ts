@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from '../core/fsutil.ts';
-import { opencodeHome } from '../core/paths.ts';
+import { opencodeDataHome, opencodeHome } from '../core/paths.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
-import { liveProviderKey } from '../core/types.ts';
+import { liveProviderKey, payloadModelIds } from '../core/types.ts';
 import type { Adapter, LaunchSpec } from './types.ts';
 import { findBinary } from './which.ts';
 
@@ -18,8 +18,19 @@ function configPath(): string {
   return join(opencodeHome(), 'opencode.json');
 }
 
+function authPath(): string {
+  return join(opencodeDataHome(), 'auth.json');
+}
+
 function providerKey(provider: Provider): string {
   return liveProviderKey(provider.id, 'opencode');
+}
+
+function writeAuth(providerId: string, apiKey: string): void {
+  if (!apiKey) return;
+  const auth = readJson<Record<string, unknown>>(authPath()) || {};
+  auth[providerId] = { type: 'api', key: apiKey };
+  writeJson(authPath(), auth, 0o600);
 }
 
 export const opencodeAdapter: Adapter = {
@@ -32,33 +43,36 @@ export const opencodeAdapter: Adapter = {
     return { installed: Boolean(bin), bin };
   },
   liveFiles() {
-    return [configPath(), join(opencodeHome(), 'AGENTS.md')];
+    return [configPath(), authPath(), join(opencodeHome(), 'AGENTS.md')];
   },
   apply(payload: ApplyPayload) {
-    backupFiles('opencode', [configPath()]);
+    backupFiles('opencode', this.liveFiles());
     const proto = payload.provider.protocols.openai;
     if (!proto) throw new Error(`Provider ${payload.provider.id} has no OpenAI protocol for OpenCode`);
     const config = readJson<OpenCodeConfig>(configPath()) || {};
     const key = providerKey(payload.provider);
     const providers = { ...(config.provider || {}) };
     const current = (providers[key] as Record<string, unknown>) || {};
+    const models: Record<string, { name: string }> = {};
+    for (const id of payloadModelIds(payload)) models[id] = { name: id };
+    // /v1/responses uses the OpenAI SDK; chat-completions uses openai-compatible.
+    const npm = proto.wireApi === 'chat' ? '@ai-sdk/openai-compatible' : '@ai-sdk/openai';
     providers[key] = {
       ...current,
-      npm: current.npm || '@ai-sdk/openai-compatible',
+      npm,
       name: payload.provider.name,
       options: {
         ...((current.options as Record<string, unknown>) || {}),
         baseURL: proto.baseUrl,
         apiKey: payload.provider.apiKey,
       },
-      models: {
-        ...((current.models as Record<string, unknown>) || {}),
-        [payload.model]: { name: payload.model },
-      },
+      models,
     };
+    config.$schema = config.$schema || 'https://opencode.ai/config.json';
     config.provider = providers;
     config.model = `${key}/${payload.model}`;
     writeJson(configPath(), config);
+    writeAuth(key, payload.provider.apiKey);
   },
   readStatus() {
     const config = readJson<OpenCodeConfig>(configPath());
