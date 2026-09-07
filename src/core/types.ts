@@ -33,26 +33,6 @@ export interface ModelRow {
   agentHint?: AgentId | 'any';
 }
 
-export interface ProfileBinding {
-  id: string;
-  profileId: string;
-  agentId: AgentId;
-  providerId: string;
-  modelId: string;
-  extra?: Record<string, unknown>;
-}
-
-export interface Profile {
-  id: string;
-  name: string;
-  description?: string;
-  defaultAgent?: AgentId;
-  sortIndex: number;
-  bindings: ProfileBinding[];
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface McpServer {
   id: string;
   name: string;
@@ -85,7 +65,6 @@ export interface AgentLiveStatus {
 
 export interface SwitchResult {
   scope: 'global' | 'session';
-  profileId?: string;
   agentId?: AgentId;
   providerId?: string;
   model?: string;
@@ -96,7 +75,6 @@ export interface SwitchResult {
 
 export interface AppState {
   currentAgent?: AgentId;
-  currentProfile?: string;
   currentModels: Partial<Record<AgentId, string>>;
 }
 

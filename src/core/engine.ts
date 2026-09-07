@@ -18,8 +18,6 @@ import {
   type ApplyPayload,
   type McpServer,
   type ModelRow,
-  type Profile,
-  type ProfileBinding,
   type PingResult,
   type PingStatus,
   type PingStep,
@@ -45,7 +43,6 @@ export class Engine {
       state,
       agents,
       current: agents.find((agent) => agent.id === state.currentAgent) || agents.find((a) => a.installed),
-      profile: state.currentProfile ? db.getProfile(state.currentProfile) : undefined,
     };
   }
 
@@ -86,10 +83,6 @@ export class Engine {
 
   listModels(): ModelRow[] {
     return db.listModels();
-  }
-
-  listProfiles(): Profile[] {
-    return db.listProfiles();
   }
 
   listPresets(): Preset[] {
@@ -166,7 +159,6 @@ export class Engine {
         agentHint: model.agentHint || 'any',
       });
     }
-    this.ensureProviderProfile(provider, models[0]?.modelId || 'default', input.preset);
     return provider;
   }
 
@@ -230,7 +222,6 @@ export class Engine {
             agentHint: 'any',
           });
         }
-        this.ensureProviderProfile(next, models[0]);
       }
     }
     return next;
@@ -296,45 +287,10 @@ export class Engine {
     return { ...this.getAgentConfig(current.agentId), backup };
   }
 
-  addProfile(input: { id?: string; name: string; description?: string; defaultAgent?: AgentId }): Profile {
-    const id = uniqueId(input.id || slug(input.name), (value) => Boolean(db.getProfile(value)));
-    const profile: Profile = {
-      id,
-      name: input.name,
-      description: input.description,
-      defaultAgent: input.defaultAgent,
-      sortIndex: db.listProfiles().length,
-      bindings: [],
-      createdAt: now(),
-      updatedAt: now(),
-    };
-    db.upsertProfile(profile);
-    return profile;
-  }
-
-  bind(profileId: string, agentId: AgentId, providerId: string, modelId: string): ProfileBinding {
-    const profile = db.getProfile(profileId);
-    if (!profile) throw new EngineError(`Unknown profile: ${profileId}`);
-    const provider = findProvider(providerId);
-    if (!provider) throw new EngineError(`Unknown provider: ${providerId}`);
-    const binding: ProfileBinding = {
-      id: randomUUID(),
-      profileId,
-      agentId,
-      providerId: provider.id,
-      modelId,
-    };
-    db.upsertBinding(binding);
-    return binding;
-  }
-
   use(target: string, opts: { agent?: string; scope?: 'global' | 'session' } = {}): SwitchResult {
     const fallback = opts.agent && isAgentId(opts.agent) ? opts.agent : db.getState().currentAgent;
     const parsed = parseTarget(target, fallback);
     if (parsed.agent) this.setAgent(parsed.agent);
-    if (parsed.kind === 'profile') {
-      return this.applyProfile(parsed.id, { agent: parsed.agent, scope: opts.scope });
-    }
     if (parsed.kind === 'provider') {
       return this.applyProvider(parsed.id, parsed.agent, opts.scope);
     }
@@ -350,38 +306,6 @@ export class Engine {
   setModel(model: string, opts: { agent?: string } = {}): SwitchResult {
     const agent = requireAgent(opts.agent || db.getState().currentAgent);
     return this.applyModel(model, agent);
-  }
-
-  applyProfile(
-    profileId: string,
-    opts: { agent?: AgentId; scope?: 'global' | 'session' } = {},
-  ): SwitchResult {
-    const profile = db.getProfile(profileId) || db.listProfiles().find((item) => item.name.toLowerCase() === profileId.toLowerCase());
-    if (!profile) throw new EngineError(`Unknown profile: ${profileId}`);
-    const bindings = opts.agent ? profile.bindings.filter((b) => b.agentId === opts.agent) : profile.bindings;
-    if (!bindings.length) throw new EngineError(`Profile ${profile.name} has no bindings`);
-    const result = emptyResult(opts.scope || 'global');
-    result.profileId = profile.id;
-    for (const binding of bindings) {
-      if (!opts.agent && !agentPresent(binding.agentId)) {
-        result.skipped.push({ agentId: binding.agentId, reason: 'not installed or configured' });
-        continue;
-      }
-      applyBinding(binding, result);
-    }
-    if (result.scope === 'global') {
-      db.setState({
-        currentProfile: profile.id,
-        currentModels: Object.fromEntries(bindings.map((b) => [b.agentId, b.modelId])),
-      });
-    }
-    db.logSwitch({
-      profileId: profile.id,
-      agentId: opts.agent,
-      scope: result.scope,
-      note: `profile ${profile.name}`,
-    });
-    return result;
   }
 
   applyProvider(providerId: string, agentId?: AgentId, scope: 'global' | 'session' = 'global'): SwitchResult {
@@ -419,7 +343,7 @@ export class Engine {
     return result;
   }
 
-  launch(opts: { agent?: string; profile?: string; target?: string; extraArgs?: string[] } = {}): LaunchSpec {
+  launch(opts: { agent?: string; target?: string; extraArgs?: string[] } = {}): LaunchSpec {
     const agent = requireAgent(opts.agent || db.getState().currentAgent);
     const payload = resolveLaunchPayload(agent, opts);
     return getAdapter(agent).sessionLaunch(payload, opts.extraArgs || []);
@@ -615,54 +539,13 @@ export class Engine {
     return `${agent}/${model}`;
   }
 
-  private ensureProviderProfile(provider: Provider, model: string, preferredId?: string): void {
-    const existing = db.listProfiles().find((item) => item.bindings.some((binding) => binding.providerId === provider.id));
-    const profileBaseId = preferredId || provider.name;
-    const profileId = existing?.id || uniqueId(slug(profileBaseId), (value) => Boolean(db.getProfile(value)));
-    if (!existing) {
-      db.upsertProfile({
-        id: profileId,
-        name: provider.name,
-        description: `Auto profile for ${provider.name}`,
-        sortIndex: db.listProfiles().length,
-        bindings: [],
-        createdAt: now(),
-        updatedAt: now(),
-      });
-    }
-    for (const adapter of adapters) {
-      if (!protocolFor(provider, adapter.protocol)) continue;
-      db.upsertBinding({
-        id: randomUUID(),
-        profileId,
-        agentId: adapter.id,
-        providerId: provider.id,
-        modelId: model,
-      });
-    }
-  }
 }
 
-function agentPresent(agentId: AgentId): boolean {
-  const adapter = getAdapter(agentId);
-  const detected = adapter.detect();
-  const live = adapter.readStatus();
-  return detected.installed || live.configured;
-}
 
 function protocolFor(provider: Provider, protocol: Protocol): ProtocolConfig | undefined {
   if (provider.protocols[protocol]) return provider.protocols[protocol];
   if (protocol === 'gemini') return provider.protocols.openai;
   return undefined;
-}
-
-function applyBinding(binding: ProfileBinding, result: SwitchResult): void {
-  const provider = db.getProvider(binding.providerId);
-  if (!provider) {
-    result.skipped.push({ agentId: binding.agentId, reason: 'missing provider' });
-    return;
-  }
-  applyPayload(binding.agentId, { provider, model: binding.modelId, extra: binding.extra }, result);
 }
 
 function applyPayload(agentId: AgentId, payload: ApplyPayload, result: SwitchResult): void {
@@ -699,24 +582,10 @@ function applyPayload(agentId: AgentId, payload: ApplyPayload, result: SwitchRes
 
 function resolveLaunchPayload(
   agent: AgentId,
-  opts: { profile?: string; target?: string },
+  opts: { target?: string },
 ): ApplyPayload {
-  if (opts.profile) {
-    const profile =
-      db.getProfile(opts.profile) ||
-      db.listProfiles().find((item) => item.name.toLowerCase() === opts.profile!.toLowerCase());
-    if (!profile) throw new EngineError(`Unknown profile: ${opts.profile}`);
-    const binding = profile.bindings.find((item) => item.agentId === agent);
-    if (!binding) throw new EngineError(`Profile ${profile.name} has no ${agent} binding`);
-    const provider = db.getProvider(binding.providerId);
-    if (!provider) throw new EngineError(`Missing provider ${binding.providerId}`);
-    return { provider, model: binding.modelId };
-  }
   if (opts.target) {
     const parsed = parseTarget(opts.target, agent);
-    if (parsed.kind === 'profile') {
-      return resolveLaunchPayload(parsed.agent || agent, { profile: parsed.id });
-    }
     if (parsed.kind === 'provider') {
       const provider =
         db.getProvider(parsed.id) ||
@@ -734,16 +603,18 @@ function resolveLaunchPayload(
 }
 
 function payloadForAgent(agent: AgentId): ApplyPayload {
-  const state = db.getState();
-  if (state.currentProfile) {
-    const profile = db.getProfile(state.currentProfile);
-    const binding = profile?.bindings.find((item) => item.agentId === agent);
-    if (binding) {
-      const provider = db.getProvider(binding.providerId);
-      if (provider) return { provider, model: binding.modelId };
-    }
+  const live = getAdapter(agent).readStatus();
+  const provider = matchLiveProvider(agent, live);
+  if (provider) {
+    return { provider, model: live.model || defaultModelFor(provider.id, agent) };
   }
-  throw new EngineError(`No provider configured for ${agent}. Run msw provider add`);
+  const modelId = db.getState().currentModels[agent];
+  if (modelId) {
+    const found = findModel(modelId, agent);
+    const fromModel = found ? db.getProvider(found.providerId) : undefined;
+    if (fromModel && found) return { provider: fromModel, model: found.modelId };
+  }
+  throw new EngineError(`No provider configured for ${agent}. Run msw use <provider>`);
 }
 
 function defaultModelFor(providerId: string, agent: AgentId): string {
@@ -766,7 +637,7 @@ function findModel(query: string, agent: AgentId): ModelRow | undefined {
   );
 }
 
-function parseTarget(target: string, fallbackAgent?: AgentId): { kind: 'profile' | 'provider' | 'model'; id: string; agent?: AgentId } {
+function parseTarget(target: string, fallbackAgent?: AgentId): { kind: 'provider' | 'model'; id: string; agent?: AgentId } {
   let agent: AgentId | undefined;
   let query = target;
   const colon = target.indexOf(':');
@@ -777,20 +648,12 @@ function parseTarget(target: string, fallbackAgent?: AgentId): { kind: 'profile'
       query = target.slice(colon + 1);
     }
   }
-  if (query.startsWith('profile:')) return { kind: 'profile', id: query.slice(8), agent };
   if (query.startsWith('provider:')) return { kind: 'provider', id: query.slice(9), agent };
   if (query.startsWith('model:')) return { kind: 'model', id: query.slice(6), agent };
-  const profile =
-    db.getProfile(query) || db.listProfiles().find((item) => item.name.toLowerCase() === query.toLowerCase());
-  if (profile) return { kind: 'profile', id: profile.id, agent };
   const provider =
     db.getProvider(query) || db.listProviders().find((item) => item.name.toLowerCase() === query.toLowerCase());
   if (provider) return { kind: 'provider', id: provider.id, agent: agent || fallbackAgent };
   return { kind: 'model', id: query, agent: agent || fallbackAgent };
-}
-
-function findProvider(query: string): Provider | undefined {
-  return db.getProvider(query) || db.listProviders().find((item) => item.name.toLowerCase() === query.toLowerCase());
 }
 
 function requireAgent(agentId?: string): AgentId {
@@ -801,13 +664,6 @@ function requireAgent(agentId?: string): AgentId {
 
 function emptyResult(scope: 'global' | 'session'): SwitchResult {
   return { scope, applied: [], skipped: [], backups: [] };
-}
-
-function uniqueId(base: string, exists: (id: string) => boolean): string {
-  if (!exists(base)) return base;
-  let i = 2;
-  while (exists(`${base}-${i}`)) i += 1;
-  return `${base}-${i}`;
 }
 
 const PING_PROMPTS = [

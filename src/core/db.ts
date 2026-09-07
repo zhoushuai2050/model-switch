@@ -8,8 +8,6 @@ import type {
   AppState,
   McpServer,
   ModelRow,
-  Profile,
-  ProfileBinding,
   Protocol,
   ProtocolConfig,
   Provider,
@@ -68,26 +66,6 @@ function migrate(db: SqliteDatabase): void {
       agent_hint TEXT,
       FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS profiles (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      default_agent TEXT,
-      sort_index INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS profile_bindings (
-      id TEXT PRIMARY KEY,
-      profile_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL,
-      provider_id TEXT NOT NULL,
-      model_id TEXT NOT NULL,
-      extra_json TEXT,
-      UNIQUE (profile_id, agent_id),
-      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
-      FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
-    );
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -112,6 +90,8 @@ function migrate(db: SqliteDatabase): void {
       scope TEXT NOT NULL,
       note TEXT
     );
+    DROP TABLE IF EXISTS profile_bindings;
+    DROP TABLE IF EXISTS profiles;
   `);
 }
 
@@ -153,7 +133,6 @@ export function upsertProvider(provider: Provider, db = getDb()): void {
 
 export function deleteProvider(id: string, db = getDb()): void {
   db.prepare('DELETE FROM models WHERE provider_id = ?').run(id);
-  db.prepare('DELETE FROM profile_bindings WHERE provider_id = ?').run(id);
   db.prepare('DELETE FROM providers WHERE id = ?').run(id);
 }
 
@@ -182,70 +161,6 @@ export function upsertModel(model: ModelRow, db = getDb()): void {
 
 export function deleteModelsForProvider(providerId: string, db = getDb()): void {
   db.prepare('DELETE FROM models WHERE provider_id = ?').run(providerId);
-}
-
-export function listProfiles(db = getDb()): Profile[] {
-  const profiles = db.prepare('SELECT * FROM profiles ORDER BY sort_index, name').all().map((row) => asRecord(row));
-  const bindings = db.prepare('SELECT * FROM profile_bindings').all().map((row) => toBinding(asRecord(row)));
-  return profiles.map((row) => toProfile(row, bindings.filter((b) => b.profileId === row.id)));
-}
-
-export function getProfile(id: string, db = getDb()): Profile | undefined {
-  const row = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id);
-  if (!row) return undefined;
-  const bindings = db
-    .prepare('SELECT * FROM profile_bindings WHERE profile_id = ?')
-    .all(id)
-    .map((item) => toBinding(asRecord(item)));
-  return toProfile(asRecord(row), bindings);
-}
-
-export function upsertProfile(profile: Profile, db = getDb()): void {
-  db.prepare(
-    `INSERT INTO profiles (id, name, description, default_agent, sort_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       name = excluded.name,
-       description = excluded.description,
-       default_agent = excluded.default_agent,
-       sort_index = excluded.sort_index,
-       updated_at = excluded.updated_at`,
-  ).run(
-    profile.id,
-    profile.name,
-    profile.description ?? null,
-    profile.defaultAgent ?? null,
-    profile.sortIndex,
-    profile.createdAt,
-    profile.updatedAt,
-  );
-}
-
-export function deleteProfile(id: string, db = getDb()): void {
-  db.prepare('DELETE FROM profile_bindings WHERE profile_id = ?').run(id);
-  db.prepare('DELETE FROM profiles WHERE id = ?').run(id);
-}
-
-export function upsertBinding(binding: ProfileBinding, db = getDb()): void {
-  db.prepare(
-    `INSERT INTO profile_bindings (id, profile_id, agent_id, provider_id, model_id, extra_json)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(profile_id, agent_id) DO UPDATE SET
-       provider_id = excluded.provider_id,
-       model_id = excluded.model_id,
-       extra_json = excluded.extra_json`,
-  ).run(
-    binding.id,
-    binding.profileId,
-    binding.agentId,
-    binding.providerId,
-    binding.modelId,
-    binding.extra ? JSON.stringify(binding.extra) : null,
-  );
-}
-
-export function deleteBinding(profileId: string, agentId: AgentId, db = getDb()): void {
-  db.prepare('DELETE FROM profile_bindings WHERE profile_id = ? AND agent_id = ?').run(profileId, agentId);
 }
 
 export function listMcp(db = getDb()): McpServer[] {
@@ -296,7 +211,6 @@ export function getState(db = getDb()): AppState {
     : undefined;
   return {
     currentAgent,
-    currentProfile: map.current_profile || undefined,
     currentModels,
   };
 }
@@ -305,11 +219,9 @@ export function setState(patch: Partial<AppState>, db = getDb()): AppState {
   const current = getState(db);
   const next: AppState = {
     currentAgent: patch.currentAgent ?? current.currentAgent,
-    currentProfile: patch.currentProfile === undefined ? current.currentProfile : patch.currentProfile,
     currentModels: patch.currentModels ? { ...current.currentModels, ...patch.currentModels } : current.currentModels,
   };
   writeState('current_agent', next.currentAgent ?? '');
-  writeState('current_profile', next.currentProfile ?? '');
   writeState('current_models', JSON.stringify(next.currentModels));
   return next;
 }
@@ -323,7 +235,6 @@ function writeState(key: string, value: string, db = getDb()): void {
 
 export function logSwitch(
   entry: {
-    profileId?: string;
     agentId?: string;
     providerId?: string;
     modelId?: string;
@@ -337,7 +248,7 @@ export function logSwitch(
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     Date.now(),
-    entry.profileId ?? null,
+    null,
     entry.agentId ?? null,
     entry.providerId ?? null,
     entry.modelId ?? null,
@@ -377,30 +288,6 @@ function toModel(row: Row): ModelRow {
     modelId: String(row.model_id),
     alias: row.alias ? String(row.alias) : undefined,
     agentHint: row.agent_hint ? (row.agent_hint as ModelRow['agentHint']) : undefined,
-  };
-}
-
-function toBinding(row: Row): ProfileBinding {
-  return {
-    id: String(row.id),
-    profileId: String(row.profile_id),
-    agentId: row.agent_id as AgentId,
-    providerId: String(row.provider_id),
-    modelId: String(row.model_id),
-    extra: row.extra_json ? (JSON.parse(String(row.extra_json)) as Record<string, unknown>) : undefined,
-  };
-}
-
-function toProfile(row: Row, bindings: ProfileBinding[]): Profile {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    description: row.description ? String(row.description) : undefined,
-    defaultAgent: row.default_agent ? (row.default_agent as AgentId) : undefined,
-    sortIndex: Number(row.sort_index ?? 0),
-    bindings,
-    createdAt: Number(row.created_at),
-    updatedAt: Number(row.updated_at),
   };
 }
 

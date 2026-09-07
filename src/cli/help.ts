@@ -2,20 +2,18 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
 
 用法:
   msw                         打开终端切换台（按 Agent 筛选供应商，与管理台一致）
-  msw status                  查看当前 Agent、模型、Profile
-  msw ls [providers|agents|profiles|models|mcp]
+  msw status                  查看当前 Agent、模型
+  msw ls [providers|agents|models|mcp]
   msw providers               显示所有供应商
-  msw use <target>            切换 Profile / Provider / 模型
+  msw use <target>            切换供应商 / 模型
   msw agent <claude|codex|gemini|opencode>
   msw model <id>              只切当前 Agent 的模型
-  msw run [agent] [--profile x] [-- extra]
+  msw run [agent] [--use x] [-- extra]
   msw provider ls             显示所有供应商
   msw provider rm <名称>      删除供应商
   msw provider add <preset> --key <api-key>
   msw provider add custom --name <名> --base-url <url> --key <key> --models <id>
   msw provider set-key|ping|presets
-  msw profile add <name>
-  msw profile bind <id> --agent <a> --provider <p> --model <m>
   msw mcp add --name <n> --command <cmd>
   msw mcp sync
   msw serve [--port 8787]     打开本机管理台
@@ -27,10 +25,9 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw help custom             自定义中转（示例）
 
 切换目标:
-  msw use kimi                Profile 或供应商 kimi
+  msw use kimi                供应商 kimi
   msw use codex:kimi-k2.5     只切 Codex 到该模型
-  msw use profile:work
-  msw run --profile cheap     仅本次进程生效
+  msw run --use cheap         仅本次进程生效
 
 数据目录: ~/.model-switch
 自定义中转示例: msw help custom
@@ -101,9 +98,9 @@ Claude 地址按中转文档里的 ANTHROPIC_BASE_URL 原样填。
 ────────────────────────────────
   msw ping packy
   msw use packy
-  msw run --profile packy          # 只这次生效，不改全局
+  msw run --use packy              # 只这次生效，不改全局
 
 追加模型（不用重新加渠道）：
-  msw profile bind packy --agent codex --provider packy --model gpt-5.4
-  msw use packy
+  在管理台编辑供应商，或:
+  msw provider add custom --name packy --key sk-xxx --base-url https://relay.example.com/v1 --models claude-sonnet-4-6,gpt-5.4
 `;

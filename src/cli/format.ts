@@ -1,4 +1,4 @@
-import type { AgentLiveStatus, ModelRow, Profile, Provider, SwitchResult } from '../core/types.ts';
+import type { AgentLiveStatus, ModelRow, Provider, SwitchResult } from '../core/types.ts';
 
 export const color = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -9,9 +9,8 @@ export const color = {
   cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
 };
 
-export function printStatus(agents: AgentLiveStatus[], currentAgent?: string, profileName?: string): void {
+export function printStatus(agents: AgentLiveStatus[], currentAgent?: string): void {
   console.log(color.bold(color.amber('MODEL SWITCH')));
-  if (profileName) console.log(`profile  ${color.cyan(profileName)}`);
   if (currentAgent) console.log(`agent    ${color.cyan(currentAgent)}`);
   console.log('');
   for (const agent of agents) {
@@ -67,18 +66,6 @@ export function printProviders(providers: Provider[], models: ModelRow[] = []): 
     console.log('');
   }
   console.log(color.dim('删除: msw provider rm <名称>'));
-}
-
-export function printProfiles(profiles: Profile[], current?: string): void {
-  if (!profiles.length) {
-    console.log('No profiles. Run msw provider add.');
-    return;
-  }
-  for (const profile of profiles) {
-    const mark = profile.id === current ? color.green('●') : color.dim('○');
-    const bindings = profile.bindings.map((b) => `${b.agentId}:${b.modelId}`).join(', ') || 'no bindings';
-    console.log(`${mark} ${profile.id.padEnd(18)} ${profile.name.padEnd(20)} ${color.dim(bindings)}`);
-  }
 }
 
 export function maskKey(key: string): string {

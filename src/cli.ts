@@ -3,7 +3,7 @@ import './core/silence-sqlite-warning.ts';
 import { engine, EngineError } from './core/engine.ts';
 import { HELP, HELP_CUSTOM } from './cli/help.ts';
 import { flag, flagList, parseArgv } from './cli/parse.ts';
-import { color, printProfiles, printProviders, printStatus, printSwitch } from './cli/format.ts';
+import { color, printProviders, printStatus, printSwitch } from './cli/format.ts';
 import { runTui } from './cli/tui.ts';
 import { startServer } from './server.ts';
 import { isAgentId, type AgentId } from './core/types.ts';
@@ -32,7 +32,7 @@ async function dispatch(): Promise<void> {
       return;
     case 'status': {
       const status = engine.status();
-      printStatus(status.agents, status.state.currentAgent, status.profile?.name);
+      printStatus(status.agents, status.state.currentAgent);
       return;
     }
     case 'ls':
@@ -43,7 +43,7 @@ async function dispatch(): Promise<void> {
       list('providers');
       return;
     case 'use': {
-      if (!args.args[0]) throw new EngineError('Usage: msw use <profile|provider|model|agent:model>');
+      if (!args.args[0]) throw new EngineError('Usage: msw use <provider|model|agent:model>');
       printSwitch(engine.use(args.args[0], { agent: flag(args, 'agent') || undefined }));
       return;
     }
@@ -61,8 +61,7 @@ async function dispatch(): Promise<void> {
     case 'run': {
       const spec = engine.launch({
         agent: args.args[0],
-        profile: flag(args, 'profile') || undefined,
-        target: flag(args, 'use') || undefined,
+        target: flag(args, 'use') || flag(args, 'provider') || undefined,
         extraArgs: args.extra,
       });
       console.log(color.dim(`${spec.command} ${spec.args.join(' ')}`));
@@ -71,9 +70,6 @@ async function dispatch(): Promise<void> {
     }
     case 'provider':
       await providerCommand();
-      return;
-    case 'profile':
-      profileCommand();
       return;
     case 'mcp':
       mcpCommand();
@@ -105,7 +101,7 @@ async function dispatch(): Promise<void> {
     case 'log':
       for (const row of engine.listLogs()) {
         const at = new Date(Number(row.at)).toISOString().replace('T', ' ').slice(0, 19);
-        console.log(`${at}  ${row.scope}  ${row.agent_id || '-'}  ${row.profile_id || row.provider_id || '-'}  ${row.model_id || ''}`);
+        console.log(`${at}  ${row.scope}  ${row.agent_id || '-'}  ${row.provider_id || '-'}  ${row.model_id || ''}`);
       }
       return;
     default:
@@ -118,7 +114,7 @@ function list(kind: string): void {
   switch (kind) {
     case 'agent':
     case 'agents':
-      printStatus(status.agents, status.state.currentAgent, status.profile?.name);
+      printStatus(status.agents, status.state.currentAgent);
       return;
     case 'provider':
     case 'providers':
@@ -144,7 +140,7 @@ function list(kind: string): void {
       }
       return;
     default:
-      printProfiles(engine.listProfiles(), status.state.currentProfile);
+      throw new EngineError(`Unknown list type: ${kind}\nUsage: msw ls [providers|agents|models|mcp]`);
   }
 }
 
@@ -205,34 +201,6 @@ async function providerCommand(): Promise<void> {
   throw new EngineError(
     'Usage: msw provider ls|add|rm|set-key|ping|presets\n  msw provider ls           显示所有供应商\n  msw provider rm <名称>    删除供应商\n自定义中转: msw help custom',
   );
-}
-
-function profileCommand(): void {
-  const sub = args.args[0] || 'ls';
-  const rest = args.args.slice(1);
-  if (sub === 'ls' || sub === 'list') {
-    printProfiles(engine.listProfiles(), engine.status().state.currentProfile);
-    return;
-  }
-  if (sub === 'add') {
-    if (!rest[0]) throw new EngineError('Usage: msw profile add <name>');
-    const profile = engine.addProfile({ name: rest.join(' ') });
-    console.log(`added profile ${profile.id}`);
-    return;
-  }
-  if (sub === 'bind') {
-    const id = rest[0];
-    const agent = flag(args, 'agent');
-    const provider = flag(args, 'provider');
-    const model = flag(args, 'model');
-    if (!id || !isAgentId(agent) || !provider || !model) {
-      throw new EngineError('Usage: msw profile bind <id> --agent codex --provider kimi --model kimi-k2.5');
-    }
-    engine.bind(id, agent, provider, model);
-    console.log(`bound ${agent} on ${id}`);
-    return;
-  }
-  throw new EngineError('Usage: msw profile ls|add|bind');
 }
 
 function mcpCommand(): void {

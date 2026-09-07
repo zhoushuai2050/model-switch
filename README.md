@@ -78,11 +78,11 @@ msw status
 msw                     # TUI
 msw provider ls         # 显示所有供应商
 msw provider rm kimi    # 删除供应商
-msw use kimi            # 切 Profile / 供应商
+msw use kimi            # 切供应商
 msw use codex:kimi-k2.5 # 只切 Codex 的模型
 msw model glm-4.7       # 当前 Agent 换模型
 msw run                 # 用当前配置启动
-msw run --profile cheap # 仅本次进程生效
+msw run --use cheap     # 仅本次进程生效
 msw serve               # 打开 http://127.0.0.1:8787
 ```
 
@@ -99,7 +99,7 @@ export PS1='$(msw prompt 2>/dev/null) '"$PS1"
 msw serve --port 8787
 ```
 
-浏览器打开本机页面：添加供应商、一键切换 Profile、测通、同步 MCP。测通会使用当前 Agent 的协议和第一个配置模型，随机生成一条简短提示词实际发送，并显示接口返回内容；这会消耗少量上游 Token。
+浏览器打开本机页面：添加供应商、一键切换、测通、同步 MCP。测通会使用当前 Agent 的协议和第一个配置模型，随机生成一条简短提示词实际发送，并显示接口返回内容；这会消耗少量上游 Token。
 
 顶部切换 Claude / Codex / Gemini / OpenCode 后，只显示当前 Agent 能用的供应商卡片。卡片上的 OpenAI / Anthropic / Gemini 标签表示已配置对应地址，测通也只测当前 Agent 的协议。
 
@@ -124,8 +124,6 @@ msw provider ls
 msw provider add deepseek --key sk-xxx
 msw provider rm deepseek
 msw provider add custom --name local --base-url http://127.0.0.1:8000/v1 --key sk-local --wire-api responses --models grok-4.6
-msw profile add work
-msw profile bind work --agent codex --provider kimi --model kimi-k2.5
 msw mcp add --name filesystem --command npx --args -y,@modelcontextprotocol/server-filesystem
 msw mcp sync
 msw ping kimi           # 随机生成一条提示词实际发测试消息
@@ -201,19 +199,13 @@ msw use claude:cc-relay
 ```bash
 msw ping packy
 msw use packy
-msw run --profile packy
+msw run --use packy
 ```
 
-追加模型，不用重新加渠道：
-
-```bash
-msw profile bind packy --agent codex --provider packy --model gpt-5.4
-msw use packy
-```
+追加模型，不用重新加渠道：在管理台编辑该供应商的模型列表。
 
 ## 设计
 
-- **Profile**：一次切换可落到多个 Agent
 - **全局切换**：改 live 配置
-- **会话切换**：`msw run --profile` 只影响本次进程
+- **会话切换**：`msw run --use` 只影响本次进程
 - **适配器**：新 Agent 实现 `detect / apply / sessionLaunch` 即可接入

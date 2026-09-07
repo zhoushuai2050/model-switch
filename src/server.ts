@@ -61,14 +61,13 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
     const id = decodeURIComponent(path.split('/')[3] || '');
     return send(res, 200, engine.getProvider(id));
   }
-  if (req.method === 'GET' && path === '/api/profiles') return send(res, 200, engine.listProfiles());
   if (req.method === 'GET' && path === '/api/models') return send(res, 200, engine.listModels());
   if (req.method === 'GET' && path === '/api/presets') return send(res, 200, engine.listPresets());
   if (req.method === 'GET' && path === '/api/mcp') return send(res, 200, engine.listMcp());
   if (req.method === 'GET' && path === '/api/logs') return send(res, 200, engine.listLogs());
   if (req.method === 'POST' && path === '/api/switch') {
     const body = await readBody(req);
-    const result = engine.use(String(body.target || body.profileId || ''), {
+    const result = engine.use(String(body.target || ''), {
       agent: body.agent ? String(body.agent) : undefined,
     });
     return send(res, 200, result);

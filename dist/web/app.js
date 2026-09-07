@@ -32,7 +32,6 @@ const state = {
   app: localStorage.getItem('msw-app') || 'codex',
   query: '',
   status: null,
-  profiles: [],
   providers: [],
   presets: [],
   models: [],
@@ -133,16 +132,14 @@ function initial(name) {
 }
 
 async function refresh() {
-  const [status, profiles, providers, presets, models, mcp] = await Promise.all([
+  const [status, providers, presets, models, mcp] = await Promise.all([
     api('/api/status'),
-    api('/api/profiles'),
     api('/api/providers'),
     api('/api/presets'),
     api('/api/models'),
     api('/api/mcp'),
   ]);
   state.status = status;
-  state.profiles = profiles;
   state.providers = providers;
   state.presets = presets;
   state.models = models;
@@ -234,21 +231,6 @@ function renderProviders() {
   }).join('')}</div>`;
 }
 
-function renderProfiles() {
-  if (!state.profiles.length) {
-    $('#view-profiles').innerHTML = '<div class="empty"><h3>还没有 Profile</h3><p>添加供应商后会自动生成。</p></div>';
-    return;
-  }
-  $('#view-profiles').innerHTML = `<div class="section-title">Profiles</div>${state.profiles.map((profile) => {
-    const current = profile.id === state.status?.state?.currentProfile;
-    const bindings = profile.bindings.map((item) => `${item.agentId}:${item.modelId}`).join(' · ') || '无绑定';
-    return `<div class="row">
-      <div><b>${escapeHtml(profile.name)} ${current ? '<span class="badge">当前</span>' : ''}</b><div class="muted">${escapeHtml(profile.id)} · ${escapeHtml(bindings)}</div></div>
-      <button class="btn sm primary" data-use="${profile.id}" type="button">切换</button>
-    </div>`;
-  }).join('')}`;
-}
-
 function renderMcp() {
   $('#view-mcp').innerHTML = `
     <form class="form-grid" id="add-mcp">
@@ -263,16 +245,15 @@ function renderMcp() {
 }
 
 function render() {
+  if (state.view !== 'providers' && state.view !== 'mcp') state.view = 'providers';
   renderSwitcher();
   renderStatus();
   document.querySelectorAll('[data-view]').forEach((btn) => btn.classList.toggle('primary', false));
   const activeViewBtn = document.querySelector(`[data-view="${state.view}"]`);
   if (activeViewBtn) activeViewBtn.classList.add('primary');
   $('#view-providers').classList.toggle('hidden', state.view !== 'providers');
-  $('#view-profiles').classList.toggle('hidden', state.view !== 'profiles');
   $('#view-mcp').classList.toggle('hidden', state.view !== 'mcp');
   if (state.view === 'providers') renderProviders();
-  if (state.view === 'profiles') renderProfiles();
   if (state.view === 'mcp') renderMcp();
 }
 

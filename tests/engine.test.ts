@@ -111,7 +111,7 @@ name = "crs"
   const engine = new Engine();
   engine.addProvider({ preset: 'deepseek', apiKey: 'sk-ds' });
   engine.setAgent('codex');
-  const spec = engine.launch({ profile: 'deepseek' });
+  const spec = engine.launch({ target: 'deepseek' });
   assert.equal(spec.command.includes('codex') || spec.command === 'codex' || existsSync(spec.command) || spec.command.endsWith('codex'), true);
   assert.ok(spec.args.includes('model=deepseek-chat') || spec.args.some((a) => a.includes('deepseek')));
   const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');

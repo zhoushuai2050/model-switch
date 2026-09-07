@@ -58,8 +58,6 @@ async function api(req, res, url) {
         const id = decodeURIComponent(path.split('/')[3] || '');
         return send(res, 200, engine.getProvider(id));
     }
-    if (req.method === 'GET' && path === '/api/profiles')
-        return send(res, 200, engine.listProfiles());
     if (req.method === 'GET' && path === '/api/models')
         return send(res, 200, engine.listModels());
     if (req.method === 'GET' && path === '/api/presets')
@@ -70,7 +68,7 @@ async function api(req, res, url) {
         return send(res, 200, engine.listLogs());
     if (req.method === 'POST' && path === '/api/switch') {
         const body = await readBody(req);
-        const result = engine.use(String(body.target || body.profileId || ''), {
+        const result = engine.use(String(body.target || ''), {
             agent: body.agent ? String(body.agent) : undefined,
         });
         return send(res, 200, result);
