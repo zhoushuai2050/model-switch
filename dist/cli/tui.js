@@ -226,19 +226,12 @@ function buildScreen(opts) {
     lines.push(frameTop('Model Switch', width, true));
     lines.push(frameRow(width, `${t.accentBold(' 本机 Agent 切换台')}${t.faint('  ·  与管理台同一数据源')}`));
     lines.push(frameRow(width, buildAgentBar(opts.agents, opts.agentIndex, opts.currentAgent, width - 2)));
-    const statusBits = [
-        opts.live?.installed ? t.green('● ready') : t.muted('○ 未安装'),
-        t.text(agent?.name || '-'),
-        t.muted(currentProvider?.name || opts.live?.providerLabel || '未配置供应商'),
-        t.accent(opts.live?.model || '未配置模型'),
-    ].join(t.faint('  ·  '));
-    lines.push(frameRow(width, ` ${statusBits}`));
     lines.push(frameBottom(width));
     lines.push('');
     const gap = 1;
     const leftW = Math.max(32, Math.min(48, Math.floor((width - gap) * 0.56)));
     const rightW = Math.max(24, width - gap - leftW);
-    const listH = Math.max(6, height - 12);
+    const listH = Math.max(6, height - 11);
     const leftTitle = opts.col === 0
         ? `供应商  ${opts.providers.length}  ·  ${need || '全部'}`
         : `供应商  ${opts.providers.length}`;
@@ -279,14 +272,25 @@ function buildScreen(opts) {
             : '';
     lines.push(frameBottom(leftW, leftFoot) + ' '.repeat(gap) + frameBottom(rightW, rightFoot));
     lines.push('');
-    if (opts.message) {
-        lines.push(opts.messageOk ? t.greenBold(`  ✓  ${opts.message}`) : t.red(`  !  ${opts.message}`));
-    }
-    else {
-        lines.push(t.faint('  选择 Agent 后，只显示它能用的供应商和模型'));
-    }
+    lines.push(buildNotice(opts.message, opts.messageOk, formatAgentStatus(opts.live, currentProvider)));
     lines.push(`  ${hint('←/→', 'Agent')}  ${hint('↑/↓', '选择')}  ${hint('Tab', '切栏')}  ${hint('Enter', '启用')}  ${hint('r', '启动')}  ${hint('q', '退出')}`);
     return lines;
+}
+function buildNotice(message, ok, status) {
+    if (message.startsWith('已切换到')) {
+        const head = ok ? t.greenBold(`✓  ${message}`) : t.red(`!  ${message}`);
+        return `  ${head}${t.faint('  ·  ')}${status}`;
+    }
+    if (message) {
+        return ok ? t.greenBold(`  ✓  ${message}`) : t.red(`  !  ${message}`);
+    }
+    return `  ${status}`;
+}
+function formatAgentStatus(live, provider) {
+    const installed = live?.installed ? t.green('● 已安装') : t.muted('○ 未安装');
+    const name = t.text(provider?.name || live?.providerLabel || '未配置供应商');
+    const model = t.accent(live?.model || '未配置模型');
+    return `${installed}${t.faint('  ·  ')}${name}${t.faint('  ·  ')}${model}`;
 }
 function hint(key, label) {
     return `${t.accentBold(key)}${t.faint(' ' + label)}`;
