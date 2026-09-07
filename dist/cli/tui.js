@@ -1,7 +1,17 @@
 import { execSync } from 'node:child_process';
 import { engine, protocolLabel, protocolsForAgent } from "../core/engine.js";
-import { color } from "./format.js";
 const ANSI = /\x1b\[[0-9;]*m/g;
+const t = {
+    reset: '\x1b[0m',
+    accent: (s) => `\x1b[38;5;75m${s}\x1b[0m`,
+    accentBold: (s) => `\x1b[1;38;5;75m${s}\x1b[0m`,
+    text: (s) => `\x1b[38;5;252m${s}\x1b[0m`,
+    muted: (s) => `\x1b[38;5;245m${s}\x1b[0m`,
+    faint: (s) => `\x1b[38;5;240m${s}\x1b[0m`,
+    green: (s) => `\x1b[38;5;114m${s}\x1b[0m`,
+    greenBold: (s) => `\x1b[1;38;5;114m${s}\x1b[0m`,
+    red: (s) => `\x1b[38;5;203m${s}\x1b[0m`,
+};
 export async function runTui() {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
         const status = engine.status();
@@ -13,7 +23,8 @@ export async function runTui() {
     let agentIndex = Math.max(0, agents().findIndex((item) => item.id === engine.status().state.currentAgent));
     let providerIndex = 0;
     let modelIndex = 0;
-    let message = '←/→ Agent  ↑/↓ 选择  Tab 切栏  Enter 启用  r 启动  q 退出';
+    let message = '';
+    let messageOk = true;
     let restored = false;
     const restore = () => {
         if (restored)
@@ -42,6 +53,10 @@ export async function runTui() {
     const quit = (code = 0) => {
         restore();
         process.exit(code);
+    };
+    const toast = (text, ok = true) => {
+        message = text;
+        messageOk = ok;
     };
     process.stdout.write('\x1b[?1049h\x1b[?25l');
     process.stdin.setRawMode(true);
@@ -105,6 +120,7 @@ export async function runTui() {
             live,
             currentAgent: status.state.currentAgent,
             message,
+            messageOk,
         });
         process.stdout.write('\x1b[H\x1b[J' + lines.join('\n'));
     };
@@ -117,10 +133,10 @@ export async function runTui() {
         engine.setAgent(agent.id);
         col = 0;
         syncIndexes();
-        message = `当前 Agent: ${agent.name}`;
+        toast(`已切换到 ${agent.name}`);
     };
     render();
-    await new Promise((resolve) => {
+    await new Promise(() => {
         process.stdin.on('data', (chunk) => {
             const key = String(chunk);
             if (key === '\u0003' || key === 'q' || key === 'Q') {
@@ -151,11 +167,12 @@ export async function runTui() {
             }
             else if (key === '\u001b[B' || key === 'j') {
                 if (col === 0) {
-                    providerIndex += 1;
+                    providerIndex = Math.min(Math.max(0, providersOf().length - 1), providerIndex + 1);
                     syncIndexes(true);
                 }
                 else {
-                    modelIndex += 1;
+                    const count = modelsOf(providersOf()[providerIndex]).length;
+                    modelIndex = Math.min(Math.max(0, count - 1), modelIndex + 1);
                 }
             }
             else if (key === '\r' || key === '\n') {
@@ -166,25 +183,25 @@ export async function runTui() {
                     const models = modelsOf(provider);
                     const model = models[modelIndex];
                     if (!agent) {
-                        message = '没有可选 Agent';
+                        toast('没有可选 Agent', false);
                     }
                     else if (!provider) {
                         const need = protocolsForAgent(agent.id).map(protocolLabel).join(' / ');
-                        message = `当前 ${agent.name} 没有可用供应商，请添加带 ${need} 地址的供应商`;
+                        toast(`当前 ${agent.name} 没有可用供应商，请添加带 ${need} 地址的供应商`, false);
                     }
                     else if (col === 1 && model) {
                         const result = engine.setModel(model.id, { agent: agent.id });
-                        message = `已启用 ${provider.name} → ${result.model || model.modelId}`;
+                        toast(`已启用  ${provider.name}  ·  ${result.model || model.modelId}`);
                         syncIndexes(true);
                     }
                     else {
                         const result = engine.use(provider.id, { agent: agent.id });
-                        message = `已启用 ${provider.name} → ${result.model || models[0]?.modelId || ''}`;
+                        toast(`已启用  ${provider.name}  ·  ${result.model || models[0]?.modelId || ''}`);
                         syncIndexes(true);
                     }
                 }
                 catch (error) {
-                    message = error instanceof Error ? error.message : String(error);
+                    toast(error instanceof Error ? error.message : String(error), false);
                 }
             }
             else if (key === 'r') {
@@ -199,80 +216,143 @@ export async function runTui() {
     });
 }
 function buildScreen(opts) {
-    const width = Math.max(60, process.stdout.columns || 80);
-    const lines = [];
+    const width = Math.max(68, Math.min(120, process.stdout.columns || 80));
+    const height = Math.max(18, process.stdout.rows || 24);
     const agent = opts.agents[opts.agentIndex];
     const provider = opts.providers[opts.providerIndex];
     const need = agent ? protocolsForAgent(agent.id).map(protocolLabel).join(' / ') : '';
-    lines.push(color.bold(color.amber(' MODEL SWITCH')) + color.dim('  本机 Agent / 模型切换台'));
-    lines.push(color.dim('─'.repeat(width)));
-    lines.push(buildAgentBar(opts.agents, opts.agentIndex, opts.currentAgent, width));
     const currentProvider = opts.providers.find((item) => isCurrentProvider(item, opts.live));
-    const currentLabel = [
-        agent?.name || '-',
-        currentProvider?.name || opts.live?.providerLabel || '未配置供应商',
-        opts.live?.model || '未配置模型',
-    ].join(' · ');
-    lines.push(`${color.dim('当前')}  ${currentLabel}${opts.live?.installed ? '' : color.dim('  未安装')}`);
-    lines.push(`${color.dim('筛选')}  仅显示带 ${need || '对应协议'} 地址的供应商，与管理台一致`);
-    lines.push(color.dim('─'.repeat(width)));
-    const leftW = Math.min(42, Math.max(28, Math.floor(width * 0.52)));
-    const rightW = Math.max(18, width - leftW - 2);
-    const leftHead = opts.col === 0 ? color.amber('▸ 供应商') : color.dim('  供应商');
-    const rightHead = opts.col === 1 ? color.amber('▸ 模型') : color.dim('  模型');
-    lines.push(`${pad(leftHead, leftW)}${rightHead}`);
-    if (!opts.providers.length) {
-        lines.push(color.dim(`  当前 ${agent?.name || 'Agent'} 没有可用供应商`));
-        lines.push(color.dim(`  请添加带 ${need} 地址的供应商，或切换到其他 Agent`));
+    const lines = [];
+    lines.push(frameTop('Model Switch', width, true));
+    lines.push(frameRow(width, `${t.accentBold(' 本机 Agent 切换台')}${t.faint('  ·  与管理台同一数据源')}`));
+    lines.push(frameRow(width, buildAgentBar(opts.agents, opts.agentIndex, opts.currentAgent, width - 2)));
+    const statusBits = [
+        opts.live?.installed ? t.green('● ready') : t.muted('○ 未安装'),
+        t.text(agent?.name || '-'),
+        t.muted(currentProvider?.name || opts.live?.providerLabel || '未配置供应商'),
+        t.accent(opts.live?.model || '未配置模型'),
+    ].join(t.faint('  ·  '));
+    lines.push(frameRow(width, ` ${statusBits}`));
+    lines.push(frameBottom(width));
+    lines.push('');
+    const gap = 1;
+    const leftW = Math.max(32, Math.min(48, Math.floor((width - gap) * 0.56)));
+    const rightW = Math.max(24, width - gap - leftW);
+    const listH = Math.max(6, height - 12);
+    const leftTitle = opts.col === 0
+        ? `供应商  ${opts.providers.length}  ·  ${need || '全部'}`
+        : `供应商  ${opts.providers.length}`;
+    const rightTitle = opts.col === 1
+        ? `模型  ${opts.models.length}`
+        : `模型  ${opts.models.length}`;
+    const leftHead = frameTop(leftTitle, leftW, opts.col === 0);
+    const rightHead = frameTop(rightTitle, rightW, opts.col === 1);
+    lines.push(leftHead + ' '.repeat(gap) + rightHead);
+    const leftView = windowed(opts.providers, opts.providerIndex, listH);
+    const rightView = windowed(opts.models, opts.modelIndex, listH);
+    for (let i = 0; i < listH; i++) {
+        const providerRow = opts.providers.length
+            ? (leftView.items[i]
+                ? formatProvider(leftView.items[i], opts.live, opts.col === 0 && leftView.items[i] === opts.providers[opts.providerIndex], leftW - 2)
+                : '')
+            : i === 1
+                ? t.muted(`  没有适合 ${agent?.name || '当前 Agent'} 的供应商`)
+                : i === 2
+                    ? t.faint(`  添加带 ${need} 地址的供应商`)
+                    : '';
+        const modelRow = opts.models.length
+            ? (rightView.items[i]
+                ? formatModel(rightView.items[i], opts.live, opts.col === 1 && rightView.items[i] === opts.models[opts.modelIndex], rightW - 2)
+                : '')
+            : i === 1
+                ? t.muted('  选择左侧供应商查看模型')
+                : '';
+        lines.push(frameRow(leftW, providerRow) + ' '.repeat(gap) + frameRow(rightW, modelRow));
+    }
+    const leftFoot = provider
+        ? trunc(` ${provider.name}  ${agentUrl(provider, agent?.id) || '未配置当前 Agent 地址'}`, leftW - 2)
+        : '';
+    const rightFoot = opts.models.length > listH
+        ? t.faint(` ${opts.modelIndex + 1}/${opts.models.length}`)
+        : opts.providers.length > listH
+            ? t.faint(` ${opts.providerIndex + 1}/${opts.providers.length}`)
+            : '';
+    lines.push(frameBottom(leftW, leftFoot) + ' '.repeat(gap) + frameBottom(rightW, rightFoot));
+    lines.push('');
+    if (opts.message) {
+        lines.push(opts.messageOk ? t.greenBold(`  ✓  ${opts.message}`) : t.red(`  !  ${opts.message}`));
     }
     else {
-        const rows = Math.max(opts.providers.length, opts.models.length, 1);
-        for (let i = 0; i < rows; i++) {
-            const left = opts.providers[i]
-                ? formatProvider(opts.providers[i], opts.live, opts.col === 0 && i === opts.providerIndex, leftW)
-                : ' '.repeat(leftW);
-            const right = opts.models[i]
-                ? formatModel(opts.models[i], opts.live, opts.col === 1 && i === opts.modelIndex, rightW)
-                : '';
-            lines.push(`${pad(left, leftW)}${right}`);
-        }
-        if (provider) {
-            const url = agentUrl(provider, agent?.id);
-            lines.push(color.dim('─'.repeat(width)));
-            lines.push(color.dim(` ${provider.name}  ${url || '未配置当前 Agent 地址'}`));
-        }
+        lines.push(t.faint('  选择 Agent 后，只显示它能用的供应商和模型'));
     }
-    lines.push(color.dim('─'.repeat(width)));
-    lines.push(opts.message);
+    lines.push(`  ${hint('←/→', 'Agent')}  ${hint('↑/↓', '选择')}  ${hint('Tab', '切栏')}  ${hint('Enter', '启用')}  ${hint('r', '启动')}  ${hint('q', '退出')}`);
     return lines;
+}
+function hint(key, label) {
+    return `${t.accentBold(key)}${t.faint(' ' + label)}`;
 }
 function buildAgentBar(agents, index, current, width = 80) {
     const parts = agents.map((agent, i) => {
-        const mark = agent.id === current ? '●' : '○';
-        const state = agent.installed ? '' : color.dim('未安装');
-        const body = `${mark}${agent.name}${state ? ` ${state}` : ''}`;
+        const n = t.faint(String(i + 1));
+        const mark = agent.id === current ? t.green('●') : t.faint('○');
+        const name = agent.installed ? agent.name : `${agent.name}${t.faint(' 未装')}`;
+        const inner = ` ${n} ${mark} ${name} `;
         if (i === index)
-            return color.bold(color.amber(`[ ${body} ]`));
-        return color.dim(`  ${body}  `);
+            return `\x1b[48;5;75;38;5;232;1m${stripAnsi(inner)}\x1b[0m`;
+        return t.muted(stripAnsi(inner));
     });
-    const bar = ` Agent  ${parts.join('')}`;
-    return visLen(bar) > width ? `${bar.slice(0, width - 1)}…` : bar;
+    const bar = ` ${parts.join('  ')}`;
+    return dispWidth(stripAnsi(bar)) > width ? `${bar}` : bar;
 }
 function formatProvider(provider, live, selected, width) {
     const current = isCurrentProvider(provider, live);
-    const key = provider.apiKey ? 'KEY' : '无KEY';
     const tags = configuredProtocols(provider).map(protocolLabel).join(' ');
-    const mark = selected ? '▸' : ' ';
-    const badge = current ? '当前' : '  ';
-    const body = trunc(`${mark} ${provider.name}  ${badge}  ${key}  ${tags}`, width);
-    return selected ? color.bold(color.amber(body)) : current ? color.green(body) : body;
+    const key = provider.apiKey ? 'KEY' : 'NO KEY';
+    const on = current ? 'ON' : '  ';
+    const mark = selected ? '▌' : ' ';
+    const plain = pad(trunc(`${mark} ${provider.name}  ${on}  ${key}  ${tags}`, width), width);
+    if (selected)
+        return `\x1b[48;5;237;38;5;159m${plain}\x1b[0m`;
+    if (current)
+        return t.green(plain);
+    return t.text(plain);
 }
 function formatModel(model, live, selected, width) {
     const current = live?.model === model.modelId;
-    const mark = selected ? '▸' : ' ';
-    const badge = current ? ' ●' : '';
-    const body = trunc(`${mark} ${model.modelId}${badge}`, width);
-    return selected ? color.bold(color.amber(body)) : current ? color.green(body) : body;
+    const mark = selected ? '▌' : ' ';
+    const badge = current ? '  ON' : '';
+    const plain = pad(trunc(`${mark} ${model.modelId}${badge}`, width), width);
+    if (selected)
+        return `\x1b[48;5;237;38;5;159m${plain}\x1b[0m`;
+    if (current)
+        return t.green(plain);
+    return t.text(plain);
+}
+function windowed(list, index, size) {
+    if (list.length <= size)
+        return { items: list };
+    const offset = Math.min(Math.max(0, index - Math.floor(size / 2)), list.length - size);
+    return { items: list.slice(offset, offset + size) };
+}
+function frameTop(title, width, active) {
+    const label = title ? ` ${title} ` : '';
+    const rest = Math.max(0, width - 2 - dispWidth(label));
+    const colored = active ? t.accentBold(label) : t.muted(label);
+    return `${t.faint('╭')}${colored}${t.faint('─'.repeat(rest) + '╮')}`;
+}
+function frameBottom(width, extra = '') {
+    const label = extra ? stripAnsi(extra) : '';
+    const rest = Math.max(0, width - 2 - dispWidth(label));
+    const text = extra ? t.muted(trunc(extra, width - 2)) : '';
+    if (!label)
+        return t.faint(`╰${'─'.repeat(width - 2)}╯`);
+    return `${t.faint('╰')}${text}${t.faint('─'.repeat(Math.max(0, rest)) + '╯')}`;
+}
+function frameRow(width, content) {
+    const innerW = width - 2;
+    const raw = content || ' ';
+    const inner = pad(dispWidth(raw) > innerW ? trunc(raw, innerW) : raw, innerW);
+    return `${t.faint('│')}${inner}${t.faint('│')}`;
 }
 function isCurrentProvider(provider, live) {
     if (!live)
@@ -297,16 +377,47 @@ function agentUrl(provider, agent) {
 function normalizeUrl(value) {
     return (value || '').replace(/\/$/, '');
 }
-function visLen(value) {
-    return value.replace(ANSI, '').length;
+function stripAnsi(value) {
+    return value.replace(ANSI, '');
+}
+function charWidth(ch) {
+    const code = ch.codePointAt(0) || 0;
+    if (code <= 31 || (code >= 127 && code <= 159))
+        return 0;
+    if (code >= 0x1100 && (code <= 0x115f
+        || code === 0x2329 || code === 0x232a
+        || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f)
+        || (code >= 0xac00 && code <= 0xd7a3)
+        || (code >= 0xf900 && code <= 0xfaff)
+        || (code >= 0xfe10 && code <= 0xfe19)
+        || (code >= 0xfe30 && code <= 0xfe6f)
+        || (code >= 0xff00 && code <= 0xff60)
+        || (code >= 0xffe0 && code <= 0xffe6)))
+        return 2;
+    return 1;
+}
+function dispWidth(value) {
+    let width = 0;
+    for (const ch of stripAnsi(value))
+        width += charWidth(ch);
+    return width;
 }
 function pad(value, width) {
-    const extra = width - visLen(value);
+    const extra = width - dispWidth(value);
     return extra > 0 ? value + ' '.repeat(extra) : value;
 }
 function trunc(value, width) {
-    if (visLen(value) <= width)
+    if (dispWidth(value) <= width)
         return value;
-    const plain = value.replace(ANSI, '');
-    return `${plain.slice(0, Math.max(1, width - 1))}…`;
+    const plain = stripAnsi(value);
+    let out = '';
+    let w = 0;
+    for (const ch of plain) {
+        const cw = charWidth(ch);
+        if (w + cw >= width)
+            break;
+        out += ch;
+        w += cw;
+    }
+    return `${out}…`;
 }
