@@ -4,6 +4,26 @@
 
 需要 Node.js 22+。先装好你要用的 Agent（`codex` / `claude` / `gemini` / `opencode`），再用 `msw` 改它们的配置。
 
+## 系统界面
+
+两套界面，数据同源。
+
+终端切换台：
+
+```bash
+msw
+```
+
+顶部切 Agent，左侧选供应商、右侧选模型，Enter 启用，`r` 启动 Agent，`q` 退出。
+
+网页管理台：
+
+```bash
+msw serve
+```
+
+浏览器打开 http://127.0.0.1:8787 。顶部切 Agent 后，只显示这个 Agent 能用的供应商。卡片上可以启用、测通、查看/编辑；工具栏可以打开当前 Agent 的配置文件。
+
 ## 安装
 
 ```bash
@@ -114,13 +134,39 @@ Codex 里用 `/model` 切换该渠道下的模型。
 msw run --use local
 ```
 
-## 管理台
+## 测通
+
+按当前 Agent 的协议发一条短测试消息，确认地址、Key 和模型名是否可用。会消耗少量 Token。
 
 ```bash
-msw serve
+msw ping local
+msw ping packy --agent claude
 ```
 
-浏览器打开 http://127.0.0.1:8787 ，可以加供应商、切换、测通。顶部选 Agent 后，只显示这个 Agent 能用的供应商。
+- Codex / OpenCode 测 OpenAI 地址
+- Claude 测 Anthropic 地址
+- Gemini 测 Gemini 地址（没填则用 `--base-url`）
+
+管理台供应商卡片上点 **测通**，会逐步显示检查结果。编辑供应商时也可以测。
+
+## 查看 / 编辑
+
+管理台供应商卡片点 **查看/编辑**，可改名称、API Key、OpenAI / Anthropic / Gemini 地址和模型列表，不必删了重加。点弹窗背景不会关闭。
+
+命令行目前只能改 Key：
+
+```bash
+msw provider set-key local sk-new
+```
+
+工具栏 **查看 Codex 配置**（随顶部选中的 Agent 变化）会直接打开该 Agent 的配置文件，例如：
+
+- Codex：`~/.codex/config.toml`
+- Claude Code：`~/.claude/settings.json`
+- Gemini：`~/.gemini/.env`
+- OpenCode：`~/.config/opencode/opencode.json`
+
+保存前自动备份。保存后要重新启动对应 Agent 才会生效。点弹窗背景也不会关闭，避免误关丢掉未保存的修改。
 
 ## 常用命令
 
