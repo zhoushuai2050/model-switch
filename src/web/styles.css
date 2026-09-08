@@ -401,9 +401,43 @@ button { cursor: pointer; }
 label.field { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
 input, select {
   height: 36px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--control-bg); padding: 0 10px;
+  background: var(--control-bg); padding: 0 10px; color: var(--ink);
 }
+input::placeholder, textarea::placeholder { color: var(--faint); }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
+
+.provider-form input:not(:disabled),
+.provider-form select {
+  color: #000000;
+  caret-color: #000000;
+  background: #ffffff;
+  border-color: #d4d4d8;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+.provider-form input.is-default {
+  color: var(--muted);
+  caret-color: var(--muted);
+  background: var(--control-bg);
+  border-color: var(--line);
+  box-shadow: none;
+}
+.provider-form input:disabled {
+  color: var(--muted);
+  background: var(--control-bg);
+  border-color: var(--line);
+}
+.provider-form input::placeholder {
+  color: #a3a3a3;
+}
+.provider-form input:not(:disabled):focus,
+.provider-form select:focus {
+  color: #000000;
+  caret-color: #000000;
+  background: #ffffff;
+  outline: 2px solid var(--primary-soft);
+  border-color: var(--primary);
+}
+.form-tip { margin: -4px 0 12px; color: var(--muted); font-size: 12px; }
 
 .toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 

@@ -359,6 +359,46 @@ async function openAgentConfigModal() {
   }
 }
 
+function presetFieldValues(presetId) {
+  const preset = presetId && presetId !== 'custom'
+    ? state.presets.find((item) => item.id === presetId)
+    : null;
+  return {
+    name: preset?.name || '',
+    openaiUrl: preset?.protocols?.openai?.baseUrl || '',
+    anthropicUrl: preset?.protocols?.anthropic?.baseUrl || '',
+    geminiUrl: preset?.protocols?.gemini?.baseUrl || '',
+    models: (preset?.models || []).map((item) => item.modelId).join(','),
+  };
+}
+
+function markDefaultField(input, value, overwrite) {
+  if (!(input instanceof HTMLInputElement)) return;
+  const next = value || '';
+  input.dataset.default = next;
+  if (overwrite || input.classList.contains('is-default') || !input.value) {
+    input.value = next;
+  }
+  syncProviderFieldTone(input);
+}
+
+function syncProviderFieldTone(input) {
+  if (!(input instanceof HTMLInputElement) || input.disabled || input.name === 'apiKey') {
+    input?.classList.remove('is-default');
+    return;
+  }
+  const isDefault = Boolean(input.dataset.default) && input.value === input.dataset.default;
+  input.classList.toggle('is-default', isDefault);
+}
+
+function fillPresetFields(form, presetId, overwrite = true) {
+  if (!form) return;
+  const values = presetFieldValues(presetId);
+  for (const [name, value] of Object.entries(values)) {
+    markDefaultField(form.querySelector(`[name="${name}"]`), value, overwrite);
+  }
+}
+
 async function openProviderModal(providerId) {
   const presets = [{ id: 'custom', name: '自定义中转' }, ...state.presets];
   let provider = null;
@@ -372,23 +412,24 @@ async function openProviderModal(providerId) {
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
     <h2>${editing ? '查看 / 编辑供应商' : '添加供应商'}</h2>
-    <form id="${editing ? 'edit-provider' : 'add-provider'}" data-id="${editing ? escapeHtml(provider.id) : ''}">
+    <form class="provider-form" id="${editing ? 'edit-provider' : 'add-provider'}" data-id="${editing ? escapeHtml(provider.id) : ''}">
       <div class="form-grid">
         ${editing ? `<label class="field">ID<input value="${escapeHtml(provider.id)}" disabled /></label>` : `<label class="field">类型
           <select name="preset">${presets.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}</select>
         </label>`}
-        <label class="field">名称<input name="name" value="${escapeHtml(provider?.name || '')}" placeholder="agentrouter / kimi" /></label>
+        <label class="field">名称<input name="name" value="${escapeHtml(provider?.name || '')}" placeholder="agentrouter / kimi" autocomplete="off" /></label>
         <label class="field">API Key
           <span class="key-row">
             <input name="apiKey" type="password" value="${escapeHtml(provider?.apiKey || '')}" placeholder="${editing ? '已保存，可直接修改' : 'sk-...'}" autocomplete="off" />
             <button class="btn sm" type="button" id="btn-toggle-key">显示</button>
           </span>
         </label>
-        <label class="field">OpenAI 地址<input name="openaiUrl" value="${escapeHtml(protocolOf(provider, 'openai'))}" placeholder="https://api.example.com/v1" /></label>
-        <label class="field">Anthropic 地址<input name="anthropicUrl" value="${escapeHtml(protocolOf(provider, 'anthropic'))}" placeholder="可选" /></label>
-        <label class="field">Gemini 地址<input name="geminiUrl" value="${escapeHtml(protocolOf(provider, 'gemini'))}" placeholder="可选" /></label>
-        <label class="field">模型<input name="models" value="${escapeHtml(models.map((item) => item.modelId).join(','))}" placeholder="gpt-5.6-sol,deepseek-v4-flash" /></label>
+        <label class="field">OpenAI 地址<input name="openaiUrl" value="${escapeHtml(protocolOf(provider, 'openai'))}" placeholder="https://api.example.com/v1" autocomplete="off" /></label>
+        <label class="field">Anthropic 地址<input name="anthropicUrl" value="${escapeHtml(protocolOf(provider, 'anthropic'))}" placeholder="可选" autocomplete="off" /></label>
+        <label class="field">Gemini 地址<input name="geminiUrl" value="${escapeHtml(protocolOf(provider, 'gemini'))}" placeholder="可选" autocomplete="off" /></label>
+        <label class="field">模型<input name="models" value="${escapeHtml(models.map((item) => item.modelId).join(','))}" placeholder="gpt-5.6-sol,deepseek-v4-flash" autocomplete="off" /></label>
       </div>
+      ${editing ? '' : '<p class="form-tip">灰色是预设默认值，你输入或改过的内容显示为纯黑色。</p>'}
       <div class="dialog-actions">
         ${editing ? `<button class="btn" type="button" data-ping="${escapeHtml(provider.id)}">测通</button>` : ''}
         <button class="btn" type="button" id="btn-cancel">取消</button>
@@ -396,6 +437,8 @@ async function openProviderModal(providerId) {
       </div>
     </form>
   </div>`;
+  const form = $('#add-provider, #edit-provider');
+  if (!editing) fillPresetFields(form, form.querySelector('[name=preset]')?.value || 'custom', true);
 }
 
 applyTheme(state.theme, false);
@@ -409,6 +452,20 @@ async function run(action, success) {
     toast(error.message || String(error), true);
   }
 }
+
+document.body.addEventListener('change', (event) => {
+  const t = event.target;
+  if (!(t instanceof HTMLSelectElement) || t.name !== 'preset') return;
+  if (t.form?.id !== 'add-provider') return;
+  fillPresetFields(t.form, t.value, false);
+});
+
+document.body.addEventListener('input', (event) => {
+  const t = event.target;
+  if (!(t instanceof HTMLInputElement)) return;
+  if (t.form?.id !== 'add-provider' && t.form?.id !== 'edit-provider') return;
+  syncProviderFieldTone(t);
+});
 
 document.body.addEventListener('click', async (event) => {
   const t = event.target.closest('button, [data-app], [data-view]');
