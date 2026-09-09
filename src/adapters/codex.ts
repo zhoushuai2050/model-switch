@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { backupFiles, readText, writeJson, atomicWrite } from '../core/fsutil.ts';
+import { backupFiles, readJson, readText, writeJson, atomicWrite } from '../core/fsutil.ts';
 import { codexHome } from '../core/paths.ts';
 import { getTable, getTopLevel, removeTable, setTopLevel, upsertTable } from '../core/toml.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
@@ -17,36 +17,91 @@ function catalogPath(): string {
 
 const CATALOG_REL = 'msw-model-catalog.json';
 
-function writeModelCatalog(models: string[]): void {
-  const entries = models.map((slug, index) => ({
-    slug,
-    display_name: slug,
-    description: slug,
-    base_instructions:
-      'You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user\'s goals.',
-    default_reasoning_level: 'high',
-    supported_reasoning_levels: [
-      { effort: 'none', description: 'Disable Thinking' },
-      { effort: 'high', description: 'Enabled Thinking' },
-    ],
-    shell_type: 'shell_command',
-    visibility: 'list',
-    supported_in_api: true,
-    priority: 1000 + index,
-    supports_reasoning_summaries: true,
-    default_reasoning_summary: 'none',
-    support_verbosity: false,
-    truncation_policy: { mode: 'bytes', limit: 10000 },
-    supports_parallel_tool_calls: false,
-    supports_image_detail_original: false,
-    context_window: 262144,
-    max_context_window: 262144,
-    effective_context_window_percent: 95,
-    experimental_supported_tools: [],
-    input_modalities: ['text', 'image'],
-    supports_search_tool: false,
-  }));
+type CatalogModel = Record<string, unknown> & { slug?: string };
+
+const REASONING_LEVELS = [
+  { effort: 'none', description: 'Disable Thinking' },
+  { effort: 'low', description: 'Fast responses with lighter reasoning' },
+  { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
+  { effort: 'high', description: 'Greater reasoning depth for complex problems' },
+  { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' },
+  { effort: 'max', description: 'Maximum reasoning depth for the hardest problems' },
+  { effort: 'ultra', description: 'Maximum reasoning with automatic task delegation' },
+];
+
+const MODEL_CATALOG_TEMPLATE: CatalogModel = {
+  base_instructions:
+    "You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve the user's goals.",
+  default_reasoning_level: 'high',
+  supported_reasoning_levels: REASONING_LEVELS,
+  shell_type: 'shell_command',
+  visibility: 'list',
+  supported_in_api: true,
+  supports_reasoning_summaries: true,
+  default_reasoning_summary: 'none',
+  support_verbosity: false,
+  truncation_policy: { mode: 'bytes', limit: 10000 },
+  supports_parallel_tool_calls: false,
+  supports_image_detail_original: false,
+  context_window: 262144,
+  max_context_window: 262144,
+  effective_context_window_percent: 95,
+  experimental_supported_tools: [],
+  input_modalities: ['text', 'image'],
+  supports_search_tool: false,
+};
+
+function reasoningLevels(current?: string) {
+  const levels = REASONING_LEVELS.map((item) => ({ ...item }));
+  if (current && !levels.some((item) => item.effort === current)) {
+    levels.push({ effort: current, description: current });
+  }
+  return levels;
+}
+
+function writeModelCatalog(models: string[], reasoningEffort?: string): void {
+  const existing = readJson<{ models?: CatalogModel[] }>(catalogPath());
+  const prevBySlug = new Map<string, CatalogModel>();
+  for (const row of existing?.models || []) {
+    if (typeof row?.slug === 'string') prevBySlug.set(row.slug, row);
+  }
+  const entries = models.map((slug, index) => {
+    const prev = prevBySlug.get(slug) || {};
+    const defaultReasoning =
+      (typeof prev.default_reasoning_level === 'string' && prev.default_reasoning_level) ||
+      reasoningEffort ||
+      String(MODEL_CATALOG_TEMPLATE.default_reasoning_level);
+    return {
+      ...MODEL_CATALOG_TEMPLATE,
+      ...prev,
+      slug,
+      display_name: typeof prev.display_name === 'string' ? prev.display_name : slug,
+      description: typeof prev.description === 'string' ? prev.description : slug,
+      default_reasoning_level: defaultReasoning,
+      supported_reasoning_levels: reasoningLevels(defaultReasoning),
+      visibility: 'list',
+      supported_in_api: true,
+      priority: 1000 + index,
+    };
+  });
   writeJson(catalogPath(), { models: entries });
+}
+
+function applyModelConfig(text: string, payload: ApplyPayload): string {
+  const models = payloadModelIds(payload);
+  const reasoningEffort = getTopLevel(text, 'model_reasoning_effort');
+  writeModelCatalog(models, reasoningEffort);
+  const applied = applyProviderTable(text, payload.provider);
+  const template: Record<string, string> = {
+    model_provider: applied.tableId,
+    model: payload.model,
+    model_catalog_json: CATALOG_REL,
+  };
+  let next = applied.text;
+  for (const [key, value] of Object.entries(template)) {
+    next = setTopLevel(next, key, value);
+  }
+  return next;
 }
 
 function providerTableId(provider: Provider): string {
@@ -102,13 +157,7 @@ export const codexAdapter: Adapter = {
   },
   apply(payload: ApplyPayload) {
     backupFiles('codex', this.liveFiles());
-    const models = payloadModelIds(payload);
-    writeModelCatalog(models);
-    let text = readText(configPath()) || '';
-    const applied = applyProviderTable(text, payload.provider);
-    text = setTopLevel(applied.text, 'model_provider', applied.tableId);
-    text = setTopLevel(text, 'model', payload.model);
-    text = setTopLevel(text, 'model_catalog_json', CATALOG_REL);
+    const text = applyModelConfig(readText(configPath()) || '', payload);
     atomicWrite(configPath(), text.endsWith('\n') ? text : `${text}\n`);
   },
   readStatus() {

@@ -13,19 +13,37 @@ type Settings = {
   [key: string]: unknown;
 };
 
+const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku'] as const;
+type ClaudeAlias = (typeof CLAUDE_ALIASES)[number];
+
 function settingsPath(): string {
   return join(claudeHome(), 'settings.json');
+}
+
+function anthropicBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '').replace(/\/v1$/i, '');
+}
+
+function claudeAlias(model: string): ClaudeAlias {
+  const lower = model.toLowerCase();
+  if (lower.includes('opus')) return 'opus';
+  if (lower.includes('haiku')) return 'haiku';
+  return 'sonnet';
 }
 
 function envFromProvider(provider: Provider, model: string): Record<string, string> {
   const proto = provider.protocols.anthropic;
   if (!proto) throw new Error(`Provider ${provider.id} has no Anthropic protocol for Claude Code`);
+  // Claude Code's /model picker only accepts official aliases. Map the upstream
+  // id through ANTHROPIC_DEFAULT_*_MODEL and never set ANTHROPIC_MODEL.
   const env: Record<string, string> = {
-    ANTHROPIC_BASE_URL: proto.baseUrl.replace(/\/$/, ''),
-    ANTHROPIC_MODEL: model,
+    ANTHROPIC_BASE_URL: anthropicBaseUrl(proto.baseUrl),
+    ANTHROPIC_MODEL: '',
+    ANTHROPIC_DEFAULT_MODEL: '',
     ANTHROPIC_DEFAULT_OPUS_MODEL: model,
     ANTHROPIC_DEFAULT_SONNET_MODEL: model,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
+    ANTHROPIC_SMALL_FAST_MODEL: model,
   };
   if (proto.authMode === 'api_key') {
     env.ANTHROPIC_API_KEY = provider.apiKey;
@@ -35,6 +53,31 @@ function envFromProvider(provider: Provider, model: string): Record<string, stri
     env.ANTHROPIC_API_KEY = '';
   }
   return env;
+}
+
+function applyEnvTemplate(
+  current: Record<string, string>,
+  incoming: Record<string, string>,
+): Record<string, string> {
+  const next = { ...current };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value) next[key] = value;
+    else delete next[key];
+  }
+  return next;
+}
+
+function mappedModel(settings?: Settings | null): string | undefined {
+  if (!settings) return undefined;
+  const env = settings.env || {};
+  const alias = settings.model;
+  const fromAlias =
+    alias === 'opus'
+      ? env.ANTHROPIC_DEFAULT_OPUS_MODEL
+      : alias === 'haiku'
+        ? env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+        : env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+  return env.ANTHROPIC_MODEL || fromAlias || settings.model;
 }
 
 export const claudeAdapter: Adapter = {
@@ -52,14 +95,8 @@ export const claudeAdapter: Adapter = {
   apply(payload: ApplyPayload) {
     backupFiles('claude', this.liveFiles());
     const settings = readJson<Settings>(settingsPath()) || {};
-    const nextEnv = { ...(settings.env || {}) };
-    const incoming = envFromProvider(payload.provider, payload.model);
-    for (const [key, value] of Object.entries(incoming)) {
-      if (value) nextEnv[key] = value;
-      else delete nextEnv[key];
-    }
-    settings.env = nextEnv;
-    if (payload.model) settings.model = payload.model;
+    settings.env = applyEnvTemplate(settings.env || {}, envFromProvider(payload.provider, payload.model));
+    if (payload.model) settings.model = claudeAlias(payload.model);
     writeJson(settingsPath(), settings);
   },
   readStatus() {
@@ -67,7 +104,7 @@ export const claudeAdapter: Adapter = {
     const env = settings?.env || {};
     return {
       configured: existsSync(settingsPath()),
-      model: env.ANTHROPIC_MODEL || settings?.model,
+      model: mappedModel(settings),
       baseUrl: env.ANTHROPIC_BASE_URL,
       providerLabel: env.ANTHROPIC_BASE_URL,
     };
@@ -76,7 +113,11 @@ export const claudeAdapter: Adapter = {
     const bin = findBinary(this.binaries) || 'claude';
     const env = envFromProvider(payload.provider, payload.model);
     const cleaned = Object.fromEntries(Object.entries(env).filter(([, value]) => value));
-    return { command: bin, args: extraArgs, env: cleaned };
+    const alias = claudeAlias(payload.model);
+    const args = extraArgs.some((item) => item === '--model' || item === '-m' || item.startsWith('--model='))
+      ? extraArgs
+      : ['--model', alias, ...extraArgs];
+    return { command: bin, args, env: cleaned };
   },
   syncMcp(servers: McpServer[]) {
     const file = claudeJsonPath();

@@ -41,10 +41,15 @@ msw status
 
 不要用 `npm i -g model-switch`（npm 上是别人的包），也不要 `npm i -g github:...`（会装坏）。
 
-更新：
+更新（不用先卸载）：
 
 ```bash
-npm uninstall -g model-switch
+msw update
+```
+
+或直接再装一遍：
+
+```bash
 npm i -g https://github.com/zhoushuai2050/model-switch/archive/refs/heads/main.tar.gz \
   --omit=dev --ignore-scripts \
   --registry=https://registry.npmjs.org/
@@ -79,7 +84,7 @@ msw provider add custom \
 ```
 
 - Codex / OpenCode 用 `--base-url`（一般要带到 `/v1`）
-- Claude Code 另加 `--anthropic-url`
+- Claude Code 另加 `--anthropic-url`（不要带末尾 `/v1`，Claude Code 会自己拼 `/v1/messages`；带了 msw 写入时也会去掉）
 - `--models` 填上游真实模型名，逗号分隔，第一项是默认模型
 
 同一家中转同时给 Codex 和 Claude：
@@ -126,7 +131,7 @@ msw model grok-4.6     # 当前 Agent 换模型
 codex      # 或 claude / gemini / opencode
 ```
 
-Codex 里用 `/model` 切换该渠道下的模型。
+Codex 里用 `/model` 切换该渠道下的模型。Claude Code 的 `/model` 只认 `sonnet` / `opus` / `haiku`；msw 会把界面模型写成这些别名，再用 `ANTHROPIC_DEFAULT_*_MODEL` 映射到上游真实模型名。不要在 Claude 里手动选自定义名。思考强度、权限等其它配置会保留。
 
 只想这次生效、不改全局：
 

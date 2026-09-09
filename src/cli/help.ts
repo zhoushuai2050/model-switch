@@ -21,6 +21,7 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw prompt                  输出 agent/model，供 shell 提示符使用
   msw doctor
   msw log
+  msw update                  从 GitHub main 更新到最新版
   msw help
   msw help custom             自定义中转（示例）
 
@@ -70,7 +71,8 @@ Codex 新版本只认 wire_api = responses，chat 会在切换时自动改掉。
   msw use codex:gpt-4.1
 
 Codex 看 --base-url，Claude Code 看 --anthropic-url。
-Claude 地址按中转文档里的 ANTHROPIC_BASE_URL 原样填。
+Claude 地址按中转文档里的 ANTHROPIC_BASE_URL 填，不要带末尾 /v1（Claude Code 会再拼 /v1/messages）。
+Claude 的 /model 只认 sonnet / opus / haiku；msw 会把真实模型名映射到这些别名。
 
 ────────────────────────────────
 只给 Claude Code

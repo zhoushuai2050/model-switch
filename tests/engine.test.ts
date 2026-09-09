@@ -95,6 +95,77 @@ test('claude adapter writes anthropic env', () => {
   const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
   assert.equal(settings.env.ANTHROPIC_AUTH_TOKEN, 'sk-kimi');
   assert.match(settings.env.ANTHROPIC_BASE_URL, /moonshot/);
+  assert.equal(settings.model, 'sonnet');
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'kimi-k2.5');
+  assert.equal(settings.env.ANTHROPIC_MODEL, undefined);
+});
+
+test('claude apply maps unofficial models through official aliases and preserves other settings', () => {
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  writeFileSync(
+    join(root, '.claude', 'settings.json'),
+    JSON.stringify({
+      env: {
+        ANTHROPIC_MODEL: 'old-model',
+        ANTHROPIC_DEFAULT_MODEL: 'old-model',
+        ANTHROPIC_BASE_URL: 'https://old.example/v1',
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      },
+      model: 'old-model',
+      effortLevel: 'high',
+      alwaysThinkingEnabled: true,
+      permissions: {
+        defaultMode: 'bypassPermissions',
+        allow: ['Bash(*)'],
+      },
+    }, null, 2),
+  );
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'lvyrix',
+    apiKey: 'sk-lvy',
+    anthropicUrl: 'https://api.lvyrix.com/v1',
+    models: ['grok-4.6'],
+  });
+  engine.use('claude:lvyrix');
+  const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
+  assert.equal(settings.model, 'sonnet');
+  assert.equal(settings.env.ANTHROPIC_BASE_URL, 'https://api.lvyrix.com');
+  assert.equal(settings.env.ANTHROPIC_AUTH_TOKEN, 'sk-lvy');
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'grok-4.6');
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'grok-4.6');
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'grok-4.6');
+  assert.equal(settings.env.ANTHROPIC_SMALL_FAST_MODEL, 'grok-4.6');
+  assert.equal(settings.env.ANTHROPIC_MODEL, undefined);
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_MODEL, undefined);
+  assert.equal(settings.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
+  assert.equal(settings.effortLevel, 'high');
+  assert.equal(settings.alwaysThinkingEnabled, true);
+  assert.equal(settings.permissions.defaultMode, 'bypassPermissions');
+  assert.deepEqual(settings.permissions.allow, ['Bash(*)']);
+  const live = engine.listAgents().find((item) => item.id === 'claude');
+  assert.equal(live?.model, 'grok-4.6');
+  const spec = engine.launch({ agent: 'claude' });
+  assert.equal(spec.env.ANTHROPIC_MODEL, undefined);
+  assert.equal(spec.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'grok-4.6');
+  assert.equal(spec.env.ANTHROPIC_BASE_URL, 'https://api.lvyrix.com');
+  assert.equal(spec.args[0], '--model');
+  assert.equal(spec.args[1], 'sonnet');
+});
+
+test('claude apply uses opus alias for opus-named models', () => {
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'anthropic-relay',
+    apiKey: 'sk-a',
+    anthropicUrl: 'https://relay.example.com',
+    models: ['claude-opus-4-6'],
+  });
+  engine.use('claude:anthropic-relay');
+  const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
+  assert.equal(settings.model, 'opus');
+  assert.equal(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'claude-opus-4-6');
+  assert.equal(engine.listAgents().find((item) => item.id === 'claude')?.model, 'claude-opus-4-6');
 });
 
 test('session launch does not change global model', () => {
@@ -252,6 +323,60 @@ test('codex apply writes model_catalog_json for /model picker', () => {
   assert.ok(slugs.includes('deepseek-v4-flash'));
   assert.ok(slugs.includes('glm-5.3'));
   assert.ok(slugs.includes('gpt-5.6-sol'));
+});
+
+test('codex apply uses catalog template and preserves reasoning and sandbox settings', () => {
+  writeFileSync(
+    join(root, '.codex', 'config.toml'),
+    `model = "old"
+model_provider = "legacy"
+model_reasoning_effort = "xhigh"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+disable_response_storage = true
+
+[projects."/tmp/work"]
+trust_level = "trusted"
+`,
+  );
+  writeFileSync(
+    join(root, '.codex', 'msw-model-catalog.json'),
+    JSON.stringify({
+      models: [
+        {
+          slug: 'gpt-5.6-sol',
+          display_name: 'Custom Name',
+          default_reasoning_level: 'xhigh',
+          supported_reasoning_levels: [{ effort: 'high', description: 'Enabled Thinking' }],
+        },
+      ],
+    }),
+  );
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-x',
+    openaiUrl: 'https://relay.example/v1',
+    models: ['gpt-5.6-sol', 'grok-4.6'],
+  });
+  engine.setAgent('codex');
+  engine.use('relay');
+  const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');
+  assert.match(text, /model = "gpt-5.6-sol"/);
+  assert.match(text, /model_reasoning_effort = "xhigh"/);
+  assert.match(text, /approval_policy = "never"/);
+  assert.match(text, /sandbox_mode = "danger-full-access"/);
+  assert.match(text, /disable_response_storage = true/);
+  assert.match(text, /trust_level = "trusted"/);
+  const catalog = JSON.parse(readFileSync(join(root, '.codex', 'msw-model-catalog.json'), 'utf8'));
+  const bySlug = Object.fromEntries(catalog.models.map((row: { slug: string }) => [row.slug, row]));
+  assert.equal(bySlug['gpt-5.6-sol'].display_name, 'Custom Name');
+  assert.equal(bySlug['gpt-5.6-sol'].default_reasoning_level, 'xhigh');
+  assert.equal(bySlug['grok-4.6'].default_reasoning_level, 'xhigh');
+  const efforts = bySlug['gpt-5.6-sol'].supported_reasoning_levels.map((row: { effort: string }) => row.effort);
+  assert.ok(efforts.includes('xhigh'));
+  assert.ok(efforts.includes('high'));
+  assert.ok(efforts.includes('none'));
 });
 
 test('updateProvider keeps key when blank and replaces models', () => {

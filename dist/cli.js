@@ -2,6 +2,7 @@
 import "./core/silence-sqlite-warning.js";
 import { engine, EngineError } from "./core/engine.js";
 import { HELP, HELP_CUSTOM } from "./cli/help.js";
+import { selfUpdate, updateNpmArgs, resolveNpm } from "./cli/update.js";
 import { flag, flagList, parseArgv } from "./cli/parse.js";
 import { color, printProviders, printStatus, printSwitch } from "./cli/format.js";
 import { runTui } from "./cli/tui.js";
@@ -108,6 +109,19 @@ async function dispatch() {
                 console.log(`${at}  ${row.scope}  ${row.agent_id || '-'}  ${row.provider_id || '-'}  ${row.model_id || ''}`);
             }
             return;
+        case 'update':
+        case 'upgrade': {
+            const npm = resolveNpm();
+            const npmArgs = updateNpmArgs();
+            console.log(color.bold('Updating msw from GitHub main'));
+            console.log(color.dim(`${npm} ${npmArgs.join(' ')}`));
+            await selfUpdate();
+            console.log(color.green('msw 已更新。'));
+            if (process.platform !== 'win32') {
+                console.log(color.dim('如果命令还是旧版本，先执行 hash -r，再运行 msw status'));
+            }
+            return;
+        }
         default:
             throw new EngineError(`Unknown command: ${args.cmd}\n\n${HELP}`);
     }
