@@ -1,10 +1,12 @@
-import { randomInt, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { adapters, getAdapter } from "../adapters/index.js";
 import * as db from "./db.js";
 import { atomicWrite, backupFiles, readText } from "./fsutil.js";
 import { getPreset, PRESETS } from "./presets.js";
+import { withPathEnv } from "./paths.js";
+import { buildChildEnv, classifyProbe, cleanupPingDirs, commandLine, createPingDirs, isProbeTestStep, PING_TIMEOUT_MS, randomPingPrompt, runCommand, } from "./probe.js";
 import { AGENT_IDS, isAgentId, now, liveProviderKey, slug, } from "./types.js";
 export class EngineError extends Error {
     constructor(message) {
@@ -329,12 +331,10 @@ export class Engine {
         for await (const step of this.pingSteps(providerId, agentId))
             steps.push(step);
         const summary = [...steps].reverse().find((item) => item.id === 'summary');
-        const test = [...steps].reverse().find((item) => isTestStep(item) && item.httpStatus);
-        const http = [...steps].reverse().find((item) => item.httpStatus);
+        const test = [...steps].reverse().find((item) => isProbeTestStep(item));
         return {
             ok: summary?.status === 'ok' || summary?.status === 'warn',
-            status: test?.httpStatus ?? http?.httpStatus,
-            url: test?.url || http?.url || '',
+            url: test?.url || '',
             error: summary?.status === 'fail' ? summary.detail : undefined,
             steps,
         };
@@ -343,9 +343,8 @@ export class Engine {
         const pingPrompt = randomPingPrompt();
         yield { id: 'load', title: '读取供应商配置', status: 'running' };
         const requestedAgent = agentId || db.getState().currentAgent;
-        const agent = requestedAgent && isAgentId(requestedAgent) ? requestedAgent : undefined;
         const provider = providerId
-            ? findProvider(providerId, agent)
+            ? findProvider(providerId, requestedAgent && isAgentId(requestedAgent) ? requestedAgent : undefined)
             : payloadForAgent(requireAgent(requestedAgent)).provider;
         if (!provider) {
             const detail = '找不到供应商';
@@ -353,6 +352,7 @@ export class Engine {
             yield { id: 'summary', title: '测通失败', status: 'fail', detail };
             return;
         }
+        const agent = resolvePingAgent(provider, requestedAgent);
         const modelRows = db.modelsForProvider(provider.id);
         const pingModel = selectedModelId(modelRows);
         const modelLabel = modelRows.length
@@ -364,105 +364,91 @@ export class Engine {
             status: 'ok',
             detail: `${provider.name} · ${provider.apiKey ? '已配置 Key' : '未配置 Key'} · 模型 ${modelLabel}`,
         };
+        if (!agent) {
+            const detail = '请先选择 Agent，或使用 --agent claude|codex|gemini|opencode';
+            yield { id: 'protocol', title: '检查协议', status: 'fail', detail };
+            yield { id: 'summary', title: '测通失败', status: 'fail', detail };
+            return;
+        }
         const wanted = protocolsForAgent(agent);
         const protocols = wanted.filter((item) => provider.protocols[item]?.baseUrl);
         if (!protocols.length) {
             const need = wanted.map(labelOf).join(' / ');
-            const detail = agent ? `当前 ${agent} 需要 ${need} 地址，该供应商未配置` : '没有可用的协议地址';
+            const detail = `当前 ${agent} 需要 ${need} 地址，该供应商未配置`;
             yield { id: 'protocol', title: '检查协议', status: 'fail', detail };
             yield { id: 'summary', title: '测通失败', status: 'fail', detail };
             return;
         }
         yield {
             id: 'protocol',
-            title: agent ? `按 ${agent} 测试 ${protocols.map(labelOf).join(' / ')}` : '检查协议',
+            title: `按 ${agent} 通过 ${getAdapter(agent).displayName} SDK 测试`,
             status: 'ok',
             detail: protocols.map((item) => `${labelOf(item)} ${provider.protocols[item]?.baseUrl}`).join(' · '),
         };
-        const ranks = [];
-        for (const protocol of protocols) {
-            const proto = provider.protocols[protocol];
-            if (!proto)
-                continue;
-            const headers = authHeaders(protocol, provider.apiKey);
-            const posts = postProbes(protocol, proto.baseUrl, pingModel, headers, proto.wireApi, pingPrompt);
-            let requestRank;
-            if (!posts.length) {
-                yield {
-                    id: `${protocol}-chat`,
-                    title: `${labelOf(protocol)} 发送测试消息「${pingPrompt}」`,
-                    status: 'skip',
-                    detail: '没有可测的模型名',
-                };
-            }
-            else {
-                for (const post of posts) {
-                    yield { id: post.id, title: post.title, status: 'running', method: 'POST', url: post.url };
-                    const replied = await probe(post.url, {
-                        method: 'POST',
-                        headers: post.headers,
-                        body: post.body,
-                        showResponse: true,
-                    });
-                    yield {
-                        id: post.id,
-                        title: post.title,
-                        status: replied.rank,
-                        method: 'POST',
-                        url: post.url,
-                        httpStatus: replied.status,
-                        ms: replied.ms,
-                        detail: replied.detail,
-                    };
-                    requestRank = requestRank ? betterRank(requestRank, replied.rank) : replied.rank;
-                    if (replied.rank === 'ok')
-                        break;
-                }
-            }
-            // Only use GET /models as a fallback diagnostic. A successful real
-            // message is the authoritative result, and many relays do not implement
-            // GET /models at all.
-            let listed;
-            if (requestRank !== 'ok') {
-                const getUrl = modelsUrl(proto.baseUrl, protocol);
-                yield { id: `${protocol}-models`, title: `${labelOf(protocol)} 拉取模型列表`, status: 'running', method: 'GET', url: getUrl };
-                listed = await probe(getUrl, { method: 'GET', headers });
-                yield {
-                    id: `${protocol}-models`,
-                    title: `${labelOf(protocol)} 拉取模型列表`,
-                    status: listed.rank,
-                    method: 'GET',
-                    url: getUrl,
-                    httpStatus: listed.status,
-                    ms: listed.ms,
-                    detail: listed.detail,
-                };
-            }
-            if (requestRank === 'ok') {
-                ranks.push('ok');
-            }
-            else if (requestRank === 'warn') {
-                ranks.push('warn');
-            }
-            else if (listed?.rank === 'ok') {
-                // The service is reachable, but the actual test message did not pass.
-                ranks.push('warn');
-            }
-            else {
-                ranks.push(requestRank || listed?.rank || 'fail');
-            }
+        if (!pingModel) {
+            const detail = '没有可测的模型名';
+            yield { id: `${agent}-sdk`, title: `通过 ${getAdapter(agent).displayName} SDK 发送测试消息`, status: 'skip', detail };
+            yield { id: 'summary', title: '测通失败', status: 'fail', detail };
+            return;
         }
-        const best = ranks.includes('ok') ? 'ok' : ranks.includes('warn') ? 'warn' : 'fail';
+        const adapter = getAdapter(agent);
+        const detected = adapter.detect();
+        if (!detected.installed) {
+            const detail = `未安装 ${adapter.displayName}，无法通过 Agent SDK 测通`;
+            yield { id: 'binary', title: `检查 ${adapter.displayName}`, status: 'fail', detail };
+            yield { id: 'summary', title: '测通失败', status: 'fail', detail };
+            return;
+        }
         yield {
-            id: 'summary',
-            title: best === 'ok' ? '测通成功' : best === 'warn' ? '服务可达' : '测通失败',
-            status: best,
-            detail: best === 'ok'
-                ? `已发送测试消息「${pingPrompt}」并收到响应`
-                : best === 'warn'
-                    ? `地址可达，但测试消息「${pingPrompt}」未通过，请检查 API Key、协议或模型名`
-                    : `发送测试消息「${pingPrompt}」失败，请检查地址、API Key 和模型名`,
+            id: 'binary',
+            title: `检查 ${adapter.displayName}`,
+            status: 'ok',
+            detail: detected.bin || adapter.binaries[0],
         };
+        const dirs = createPingDirs();
+        const stepId = `${agent}-sdk`;
+        const title = `通过 ${adapter.displayName} SDK 发送测试消息「${pingPrompt}」`;
+        try {
+            const payload = {
+                provider,
+                model: pingModel,
+                extra: { models: modelIdsForPayload(provider.id, pingModel) },
+            };
+            const spec = adapter.probeSpec(payload, pingPrompt, dirs.root);
+            const url = commandLine(spec.command, spec.args);
+            yield { id: stepId, title, status: 'running', method: 'SDK', url };
+            withPathEnv(spec.pathEnv, () => adapter.apply(payload));
+            const run = await runCommand({ command: spec.command, args: spec.args, env: buildChildEnv(spec.pathEnv, spec.env), outputFile: spec.outputFile }, { cwd: dirs.work, timeoutMs: PING_TIMEOUT_MS });
+            const parsed = adapter.parseProbe(run);
+            const judged = classifyProbe(run, parsed);
+            yield {
+                id: stepId,
+                title,
+                status: judged.rank,
+                method: 'SDK',
+                url,
+                ms: run.ms,
+                detail: judged.detail,
+            };
+            yield {
+                id: 'summary',
+                title: judged.rank === 'ok' ? '测通成功' : judged.rank === 'warn' ? '服务可达' : '测通失败',
+                status: judged.rank,
+                detail: judged.rank === 'ok'
+                    ? `已通过 ${adapter.displayName} SDK 发送测试消息「${pingPrompt}」并收到响应`
+                    : judged.rank === 'warn'
+                        ? `Agent 已启动，但测试消息「${pingPrompt}」未通过，请检查 API Key、协议或模型名`
+                        : `通过 ${adapter.displayName} SDK 发送测试消息「${pingPrompt}」失败，请检查地址、API Key 和模型名`,
+            };
+        }
+        catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            yield { id: stepId, title, status: 'fail', method: 'SDK', detail };
+            yield { id: 'summary', title: '测通失败', status: 'fail', detail };
+        }
+        finally {
+            cleanupPingDirs(dirs.root);
+        }
     }
     prompt() {
         const state = db.getState();
@@ -689,24 +675,24 @@ function requireAgent(agentId) {
 function emptyResult(scope) {
     return { scope, applied: [], skipped: [], backups: [] };
 }
-const PING_PROMPTS = [
-    '你好，请用一句话介绍你自己。',
-    '请用中文回答：1+1 等于多少？',
-    '请用不超过 20 个字解释什么是 API。',
-    '请给我一个简短的学习建议。',
-    '请用一句话描述春天。',
-    '请返回一个简短的 JSON：{"ok":true}',
-];
-function randomPingPrompt() {
-    return PING_PROMPTS[randomInt(PING_PROMPTS.length)];
-}
-function modelsUrl(baseUrl, protocol) {
-    const trimmed = baseUrl.replace(/\/$/, '');
-    if (protocol === 'anthropic')
-        return `${apiV1Root(trimmed)}/models`;
-    if (trimmed.endsWith('/v1'))
-        return `${trimmed}/models`;
-    return `${trimmed}/v1/models`;
+function resolvePingAgent(provider, requested) {
+    if (requested && isAgentId(requested))
+        return requested;
+    const current = db.getState().currentAgent;
+    if (current && isAgentId(current))
+        return current;
+    const supported = AGENT_IDS.filter((item) => providerSupportsAgent(provider, item));
+    if (supported.length === 1)
+        return supported[0];
+    if (provider.protocols.anthropic?.baseUrl && !provider.protocols.openai?.baseUrl && !provider.protocols.gemini?.baseUrl) {
+        return 'claude';
+    }
+    if (provider.protocols.gemini?.baseUrl && !provider.protocols.openai?.baseUrl && !provider.protocols.anthropic?.baseUrl) {
+        return 'gemini';
+    }
+    if (provider.protocols.openai?.baseUrl)
+        return 'codex';
+    return supported[0];
 }
 export function protocolsForAgent(agent) {
     if (agent === 'claude')
@@ -809,324 +795,5 @@ function labelOf(protocol) {
     if (protocol === 'gemini')
         return 'Gemini';
     return 'OpenAI';
-}
-function authHeaders(protocol, apiKey) {
-    const key = apiKey.trim();
-    if (protocol === 'anthropic') {
-        return { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
-    }
-    if (protocol === 'gemini') {
-        const headers = { 'content-type': 'application/json' };
-        if (key)
-            headers['x-goog-api-key'] = key;
-        return headers;
-    }
-    const headers = { 'content-type': 'application/json' };
-    if (key)
-        headers.Authorization = `Bearer ${key}`;
-    return headers;
-}
-function apiV1Root(baseUrl) {
-    return baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
-}
-function postProbes(protocol, baseUrl, model, headers, wireApi, pingPrompt) {
-    if (!model)
-        return [];
-    const trimmed = baseUrl.replace(/\/$/, '');
-    if (protocol === 'anthropic') {
-        return [{
-                id: 'anthropic-messages',
-                title: `Anthropic 发送测试消息「${pingPrompt}」`,
-                url: `${apiV1Root(trimmed)}/messages`,
-                headers,
-                body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: pingPrompt }] }),
-            }];
-    }
-    if (protocol === 'gemini') {
-        const root = trimmed.endsWith('/v1') || trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`;
-        return [{
-                id: 'gemini-generate',
-                title: `Gemini 发送测试消息「${pingPrompt}」`,
-                url: `${root}/models/${encodeURIComponent(model)}:generateContent`,
-                headers,
-                body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: pingPrompt }] }] }),
-            }];
-    }
-    const openaiRoot = apiV1Root(trimmed);
-    const streamHeaders = { ...headers, accept: 'text/event-stream' };
-    const chat = {
-        id: 'openai-chat',
-        title: `OpenAI Chat Completions 测试消息「${pingPrompt}」`,
-        url: `${openaiRoot}/chat/completions`,
-        headers: streamHeaders,
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: pingPrompt }], max_tokens: 16, stream: true }),
-    };
-    const responses = {
-        id: 'openai-responses',
-        title: `OpenAI Responses 测试消息「${pingPrompt}」`,
-        url: `${openaiRoot}/responses`,
-        headers: streamHeaders,
-        // Use the same message-array shape and streaming mode as Codex. Some
-        // OpenAI-compatible relays only implement this wire format reliably.
-        body: JSON.stringify({
-            model,
-            input: [{ role: 'user', content: [{ type: 'input_text', text: pingPrompt }] }],
-            max_output_tokens: 16,
-            store: false,
-            stream: true,
-        }),
-    };
-    if (wireApi === 'responses')
-        return [responses];
-    if (wireApi === 'chat')
-        return [chat];
-    return [responses, chat];
-}
-function jsonValue(text) {
-    try {
-        return JSON.parse(text);
-    }
-    catch {
-        return undefined;
-    }
-}
-function jsonMessage(text) {
-    const json = jsonValue(text);
-    const root = asRecord(json);
-    const error = asRecord(root?.error);
-    return asString(error?.message) || asString(root?.message);
-}
-function responseText(text) {
-    const root = asRecord(jsonValue(text));
-    if (!root)
-        return undefined;
-    const direct = asString(root.output_text);
-    if (direct)
-        return direct;
-    const choices = Array.isArray(root.choices) ? root.choices : [];
-    const choice = asRecord(choices[0]);
-    const message = asRecord(choice?.message);
-    const choiceText = textContent(message?.content) || textContent(choice?.text);
-    if (choiceText)
-        return choiceText;
-    const content = textContent(root.content);
-    if (content)
-        return content;
-    const output = Array.isArray(root.output) ? root.output : [];
-    for (const item of output) {
-        const itemRecord = asRecord(item);
-        const outputText = textContent(itemRecord?.content) || asString(itemRecord?.text);
-        if (outputText)
-            return outputText;
-    }
-    const candidates = Array.isArray(root.candidates) ? root.candidates : [];
-    const candidate = asRecord(candidates[0]);
-    const candidateContent = asRecord(candidate?.content);
-    return textContent(candidateContent?.parts);
-}
-function textContent(value) {
-    if (typeof value === 'string')
-        return value;
-    if (Array.isArray(value)) {
-        const text = value.map((item) => textContent(item)).filter(Boolean).join(' ');
-        return text || undefined;
-    }
-    const record = asRecord(value);
-    if (!record)
-        return undefined;
-    return asString(record.text) || textContent(record.content) || textContent(record.parts);
-}
-function asRecord(value) {
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
-}
-function asString(value) {
-    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-function clip(text, length = 180) {
-    return text.length > length ? `${text.slice(0, length - 1)}…` : text;
-}
-function betterRank(current, next) {
-    if (current === 'ok' || next === 'ok')
-        return 'ok';
-    if (current === 'warn' || next === 'warn')
-        return 'warn';
-    if (current === 'running' || next === 'running')
-        return 'running';
-    if (current === 'skip' || next === 'skip')
-        return 'skip';
-    return 'fail';
-}
-function isTestStep(step) {
-    return step.id === 'anthropic-messages' || step.id === 'gemini-generate' || step.id === 'openai-chat' || step.id === 'openai-responses';
-}
-function classify(status) {
-    if (!status)
-        return 'fail';
-    if (status >= 200 && status < 300)
-        return 'ok';
-    if (status === 401 || status === 403 || status === 400)
-        return 'warn';
-    return 'fail';
-}
-let proxyAgent;
-let proxyEnvSignature = '';
-let undiciModule;
-let undiciLoad;
-const PROXY_ENV_KEYS = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
-function proxyEnvironmentSignature() {
-    return PROXY_ENV_KEYS.map((key) => `${key}=${process.env[key] || ''}`).join('\n');
-}
-function hasProxyEnvironment() {
-    return ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
-        .some((key) => Boolean(process.env[key]?.trim()));
-}
-function httpProxyAgent(EnvHttpProxyAgent) {
-    const signature = proxyEnvironmentSignature();
-    if (!proxyAgent || signature !== proxyEnvSignature) {
-        proxyAgent = new EnvHttpProxyAgent();
-        proxyEnvSignature = signature;
-    }
-    return proxyAgent;
-}
-async function loadUndici() {
-    if (undiciModule)
-        return undiciModule;
-    if (!undiciLoad) {
-        undiciLoad = import('undici')
-            .then((module) => {
-            undiciModule = module;
-            return module;
-        })
-            .catch(() => undefined);
-    }
-    return undiciLoad;
-}
-const CONNECT_TIMEOUT_MS = 12_000;
-const MESSAGE_TIMEOUT_MS = 45_000;
-async function request(url, init) {
-    const fetchInit = {
-        method: init.method,
-        headers: init.headers,
-        body: init.body,
-        signal: AbortSignal.timeout(init.timeoutMs),
-    };
-    if (!hasProxyEnvironment())
-        return globalThis.fetch(url, fetchInit);
-    const undici = await loadUndici();
-    if (!undici) {
-        throw new EngineError('检测到 HTTP(S)_PROXY 环境变量，但当前安装缺少 undici。请在项目目录执行 npm install --omit=dev 后重试。');
-    }
-    return undici.fetch(url, {
-        ...fetchInit,
-        dispatcher: httpProxyAgent(undici.EnvHttpProxyAgent),
-    });
-}
-async function readProbeBody(res) {
-    const contentType = res.headers.get('content-type')?.toLowerCase() || '';
-    if (!res.body || !contentType.includes('text/event-stream')) {
-        return { text: await res.text() };
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let raw = '';
-    let streamText = '';
-    let streamError;
-    let completed = false;
-    try {
-        while (!completed) {
-            const chunk = await reader.read();
-            if (chunk.done)
-                break;
-            const part = decoder.decode(chunk.value, { stream: true });
-            raw += part;
-            buffer += part;
-            const events = buffer.split(/\r?\n\r?\n/);
-            buffer = events.pop() || '';
-            for (const event of events) {
-                const data = event
-                    .split(/\r?\n/)
-                    .filter((line) => line.startsWith('data:'))
-                    .map((line) => line.slice(5).trim())
-                    .join('\n');
-                if (!data)
-                    continue;
-                if (data === '[DONE]') {
-                    completed = true;
-                    break;
-                }
-                const parsed = jsonValue(data);
-                const root = asRecord(parsed);
-                if (!root)
-                    continue;
-                const type = asString(root.type) || '';
-                if (type === 'response.output_text.delta') {
-                    streamText += asString(root.delta) || '';
-                }
-                else if (type === 'response.output_text.done') {
-                    streamText = asString(root.text) || streamText;
-                }
-                else if (type === 'response.completed' || type === 'response.incomplete') {
-                    completed = true;
-                }
-                else if (type === 'response.failed' || type === 'error') {
-                    streamError = jsonMessage(data) || asString(root.message) || '流式请求失败';
-                    completed = true;
-                }
-                const choices = Array.isArray(root.choices) ? root.choices : [];
-                const choice = asRecord(choices[0]);
-                const delta = asRecord(choice?.delta);
-                streamText += textContent(delta?.content) || '';
-                if (choice?.finish_reason)
-                    completed = true;
-                if (!streamText) {
-                    streamText = responseText(data) || '';
-                }
-            }
-        }
-    }
-    finally {
-        // Stop reading as soon as the provider signals completion. Some relays keep
-        // the SSE connection open for a short time after the final event.
-        await reader.cancel().catch(() => undefined);
-    }
-    return { text: raw, streamText: streamText || undefined, streamError };
-}
-async function probe(url, init) {
-    const started = Date.now();
-    try {
-        const res = await request(url, {
-            ...init,
-            timeoutMs: init.method === 'POST' ? MESSAGE_TIMEOUT_MS : CONNECT_TIMEOUT_MS,
-        });
-        const body = await readProbeBody(res);
-        const text = body.text.slice(0, 280).replace(/\s+/g, ' ').trim();
-        const ms = Date.now() - started;
-        const rank = classify(res.status);
-        const message = body.streamError || jsonMessage(text);
-        const parsed = jsonValue(text);
-        const reply = init.showResponse
-            ? clip(body.streamText || responseText(text) || (parsed === undefined ? text : ''))
-            : undefined;
-        let detail = message || text || `HTTP ${res.status}`;
-        if (rank === 'warn' && (res.status === 401 || res.status === 403)) {
-            detail = `服务可达，鉴权失败：${message || 'API Key 无效'}`;
-        }
-        else if (rank === 'warn' && res.status === 400) {
-            detail = `服务可达，请求被拒绝：${message || text || 'HTTP 400'}`;
-        }
-        else if (rank === 'ok') {
-            detail = init.showResponse ? `收到回复：${reply || '接口可用'}` : '接口可用';
-        }
-        return { ok: rank === 'ok', rank, status: res.status, ms, detail };
-    }
-    catch (error) {
-        return {
-            ok: false,
-            rank: 'fail',
-            ms: Date.now() - started,
-            detail: error instanceof Error ? error.message : String(error),
-        };
-    }
 }
 export const engine = new Engine();

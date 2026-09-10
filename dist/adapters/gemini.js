@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { atomicWrite, backupFiles, readJson, readText, writeJson } from "../core/fsutil.js";
 import { parseEnv, stringifyEnv } from "../core/envfile.js";
 import { geminiHome } from "../core/paths.js";
+import { asRecord, asString, extractJson } from "../core/probe.js";
 import { findBinary } from "./which.js";
 function envPath() {
     return join(geminiHome(), '.env');
@@ -58,6 +59,34 @@ export const geminiAdapter = {
             args: extraArgs,
             env: envFromProvider(payload.provider, payload.model),
         };
+    },
+    probeSpec(payload, prompt, isolatedHome) {
+        const bin = findBinary(this.binaries) || 'gemini';
+        return {
+            command: bin,
+            args: [
+                '-p', prompt,
+                '--output-format', 'json',
+                '-m', payload.model,
+            ],
+            env: envFromProvider(payload.provider, payload.model),
+            pathEnv: { GEMINI_CONFIG_DIR: isolatedHome },
+        };
+    },
+    parseProbe(input) {
+        const json = extractJson(input.stdout) ?? extractJson(input.stderr);
+        const root = asRecord(json);
+        if (root) {
+            const error = asRecord(root.error);
+            if (error)
+                return { error: asString(error.message) || asString(root.error) || 'Gemini CLI 报错' };
+            const response = asString(root.response) || asString(root.result) || asString(root.text);
+            if (response)
+                return { reply: response };
+        }
+        if (input.code === 0 && input.stdout.trim())
+            return { reply: input.stdout.trim() };
+        return { error: input.stderr.trim() || input.stdout.trim() || input.spawnError };
     },
     syncMcp(servers) {
         const settings = readJson(settingsPath()) || {};

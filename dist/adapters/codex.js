@@ -3,6 +3,7 @@ import { backupFiles, readJson, readText, writeJson, atomicWrite } from "../core
 import { codexHome } from "../core/paths.js";
 import { getTable, getTopLevel, removeTable, setTopLevel, upsertTable } from "../core/toml.js";
 import { liveProviderKey, payloadModelIds } from "../core/types.js";
+import { asRecord, asString, collectJsonlText, extractJson } from "../core/probe.js";
 import { findBinary } from "./which.js";
 function configPath() {
     return join(codexHome(), 'config.toml');
@@ -183,6 +184,50 @@ export const codexAdapter = {
         if (payload.provider.apiKey)
             env.OPENAI_API_KEY = payload.provider.apiKey;
         return { command: bin, args, env };
+    },
+    probeSpec(payload, prompt, isolatedHome) {
+        const bin = findBinary(this.binaries) || 'codex';
+        const proto = payload.provider.protocols.openai;
+        if (!proto)
+            throw new Error(`Provider ${payload.provider.id} has no OpenAI protocol for Codex`);
+        const tableId = providerTableId(payload.provider);
+        const outputFile = join(isolatedHome, 'last-message.txt');
+        const env = {};
+        if (payload.provider.apiKey)
+            env.OPENAI_API_KEY = payload.provider.apiKey;
+        return {
+            command: bin,
+            args: [
+                'exec',
+                '--ephemeral',
+                '--skip-git-repo-check',
+                '--sandbox', 'read-only',
+                '--color', 'never',
+                '-o', outputFile,
+                '-c', `model=${payload.model}`,
+                '-c', `model_provider=${tableId}`,
+                prompt,
+            ],
+            env,
+            pathEnv: { CODEX_HOME: isolatedHome },
+            outputFile,
+        };
+    },
+    parseProbe(input) {
+        const fromFile = input.outputFileText?.trim();
+        if (fromFile)
+            return { reply: fromFile };
+        const jsonl = collectJsonlText(input.stdout);
+        if (jsonl)
+            return { reply: jsonl };
+        const json = extractJson(input.stdout);
+        const root = asRecord(json);
+        const reply = asString(root?.output_text) || asString(root?.text) || asString(root?.result);
+        if (reply)
+            return { reply };
+        if (input.code === 0 && input.stdout.trim())
+            return { reply: input.stdout.trim() };
+        return { error: input.stderr.trim() || input.stdout.trim() || input.spawnError };
     },
     syncMcp(servers) {
         let text = readText(configPath()) || '';

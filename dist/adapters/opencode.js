@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from "../core/fsutil.js";
 import { opencodeDataHome, opencodeHome } from "../core/paths.js";
 import { liveProviderKey, payloadModelIds } from "../core/types.js";
+import { asRecord, asString, collectJsonlText, extractJson } from "../core/probe.js";
 import { findBinary } from "./which.js";
 function configPath() {
     return join(opencodeHome(), 'opencode.json');
@@ -88,6 +89,39 @@ export const opencodeAdapter = {
                 OPENCODE_MODEL: `${key}/${payload.model}`,
             },
         };
+    },
+    probeSpec(payload, prompt, isolatedHome) {
+        const bin = findBinary(this.binaries) || 'opencode';
+        const key = providerKey(payload.provider);
+        const dataDir = join(isolatedHome, 'data');
+        return {
+            command: bin,
+            args: [
+                'run',
+                '--model', `${key}/${payload.model}`,
+                prompt,
+            ],
+            env: {
+                OPENCODE_MODEL: `${key}/${payload.model}`,
+            },
+            pathEnv: {
+                OPENCODE_CONFIG_DIR: isolatedHome,
+                OPENCODE_DATA_DIR: dataDir,
+            },
+        };
+    },
+    parseProbe(input) {
+        const jsonl = collectJsonlText(input.stdout);
+        if (jsonl)
+            return { reply: jsonl };
+        const json = extractJson(input.stdout);
+        const root = asRecord(json);
+        const reply = asString(root?.text) || asString(root?.result) || asString(root?.message);
+        if (reply)
+            return { reply };
+        if (input.code === 0 && input.stdout.trim())
+            return { reply: input.stdout.trim() };
+        return { error: input.stderr.trim() || input.stdout.trim() || input.spawnError };
     },
     syncMcp(servers) {
         const config = readJson(configPath()) || {};

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from "../core/fsutil.js";
 import { claudeHome, claudeJsonPath } from "../core/paths.js";
+import { asRecord, asString, extractJson } from "../core/probe.js";
 import { findBinary } from "./which.js";
 const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku'];
 function settingsPath() {
@@ -104,6 +105,38 @@ export const claudeAdapter = {
             ? extraArgs
             : ['--model', alias, ...extraArgs];
         return { command: bin, args, env: cleaned };
+    },
+    probeSpec(payload, prompt, isolatedHome) {
+        const bin = findBinary(this.binaries) || 'claude';
+        const env = envFromProvider(payload.provider, payload.model);
+        const alias = claudeAlias(payload.model);
+        return {
+            command: bin,
+            args: [
+                '-p',
+                '--output-format', 'json',
+                '--model', alias,
+                '--permission-prompts', 'none',
+                '--no-session-persistence',
+                prompt,
+            ],
+            env,
+            pathEnv: { CLAUDE_CONFIG_DIR: isolatedHome },
+        };
+    },
+    parseProbe(input) {
+        const json = extractJson(input.stdout) ?? extractJson(input.stderr);
+        const root = asRecord(json);
+        if (root) {
+            const result = asString(root.result) || asString(root.error);
+            if (root.is_error === true)
+                return { error: result || 'Claude Code SDK 报错' };
+            if (result)
+                return { reply: result };
+        }
+        if (input.code === 0 && input.stdout.trim())
+            return { reply: input.stdout.trim() };
+        return { error: input.stderr.trim() || input.stdout.trim() || input.spawnError };
     },
     syncMcp(servers) {
         const file = claudeJsonPath();

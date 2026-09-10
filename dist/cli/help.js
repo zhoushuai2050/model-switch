@@ -18,7 +18,7 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw mcp add --name <n> --command <cmd>
   msw mcp sync
   msw serve [--port 8787]     打开本机管理台
-  msw ping [provider]
+  msw ping [provider]        通过当前 Agent SDK 测通（不是直连 HTTP）
   msw prompt                  输出 agent/model，供 shell 提示符使用
   msw doctor
   msw log
