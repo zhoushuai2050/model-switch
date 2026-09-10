@@ -1,3 +1,5 @@
+import { LANGS, detectLang, setLang, t } from './i18n.js';
+
 const $ = (sel) => document.querySelector(sel);
 const APPS = [
   { id: 'claude', name: 'Claude' },
@@ -7,11 +9,11 @@ const APPS = [
 ];
 
 const THEMES = [
-  { id: 'midnight', name: '午夜蓝', color: '#3b82f6' },
-  { id: 'paper', name: '纸张白', color: '#2563eb' },
-  { id: 'ocean', name: '深海青', color: '#14b8a6' },
-  { id: 'plum', name: '暮紫', color: '#a78bfa' },
-  { id: 'forest', name: '松林绿', color: '#34d399' },
+  { id: 'midnight', color: '#3b82f6' },
+  { id: 'paper', color: '#2563eb' },
+  { id: 'ocean', color: '#14b8a6' },
+  { id: 'plum', color: '#a78bfa' },
+  { id: 'forest', color: '#34d399' },
 ];
 
 const PROTOCOL_LABELS = {
@@ -37,7 +39,10 @@ const state = {
   models: [],
   mcp: [],
   theme: localStorage.getItem('msw-theme') || 'midnight',
+  lang: detectLang(),
 };
+
+setLang(state.lang, false);
 
 function applyTheme(themeId, persist = true) {
   const theme = THEMES.some((item) => item.id === themeId) ? themeId : 'midnight';
@@ -47,13 +52,54 @@ function applyTheme(themeId, persist = true) {
   renderThemeOptions();
 }
 
+function applyLang(lang, persist = true) {
+  state.lang = setLang(lang, persist);
+  closeModal();
+  closeModelModal();
+  renderChrome();
+  renderLangOptions();
+  renderThemeOptions();
+  render();
+}
+
+function renderChrome() {
+  document.title = t('app.title');
+  const sub = $('#brand-sub');
+  if (sub) sub.textContent = t('app.subtitle');
+  const mcp = $('#btn-mcp');
+  if (mcp) mcp.textContent = t('nav.mcp');
+  const search = $('#search');
+  if (search) search.placeholder = t('search.placeholder');
+  const themeLabel = $('#btn-theme-label');
+  if (themeLabel) themeLabel.textContent = t('theme.label');
+  const themeBtn = $('#btn-theme');
+  if (themeBtn) themeBtn.title = t('theme.title');
+  const themeTitle = $('#theme-menu-title');
+  if (themeTitle) themeTitle.textContent = t('theme.scheme');
+  const langLabel = $('#btn-lang-label');
+  if (langLabel) langLabel.textContent = t('lang.label');
+  const langBtn = $('#btn-lang');
+  if (langBtn) langBtn.title = t('lang.title');
+  const langTitle = $('#lang-menu-title');
+  if (langTitle) langTitle.textContent = t('lang.scheme');
+}
+
 function renderThemeOptions() {
   const menu = $('#theme-options');
   if (!menu) return;
-  menu.innerHTML = THEMES.map((theme) => `<button class="theme-option ${state.theme === theme.id ? 'active' : ''}" type="button" data-theme-id="${theme.id}">
+  menu.innerHTML = THEMES.map((theme) => `<button class="dock-option ${state.theme === theme.id ? 'active' : ''}" type="button" data-theme-id="${theme.id}">
     <span class="theme-swatch" style="--swatch:${theme.color}"></span>
-    <span>${theme.name}</span>
-    ${state.theme === theme.id ? '<span class="theme-check">✓</span>' : ''}
+    <span>${t(`theme.${theme.id}`)}</span>
+    ${state.theme === theme.id ? '<span class="dock-check">✓</span>' : ''}
+  </button>`).join('');
+}
+
+function renderLangOptions() {
+  const menu = $('#lang-options');
+  if (!menu) return;
+  menu.innerHTML = LANGS.map((lang) => `<button class="dock-option ${state.lang === lang.id ? 'active' : ''}" type="button" data-lang-id="${lang.id}">
+    <span>${lang.label}</span>
+    ${state.lang === lang.id ? '<span class="dock-check">✓</span>' : ''}
   </button>`).join('');
 }
 
@@ -104,11 +150,17 @@ function selectedFromEditor(editor) {
 
 function modelChipHtml(modelId, selected, providerId = '') {
   return `<div class="model-chip ${selected ? 'selected' : ''}">
-    <button type="button" class="model-chip-name" data-model-select="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}">
-      ${escapeHtml(modelId)}${selected ? '<span class="model-chip-flag">当前</span>' : ''}
+    <button type="button" class="model-chip-name" data-model-select="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${escapeHtml(modelId)}">
+      ${escapeHtml(modelId)}${selected ? `<span class="model-chip-flag">${t('badge.current')}</span>` : ''}
     </button>
-    <button type="button" class="model-chip-del" data-model-delete="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="删除模型">×</button>
+    <button type="button" class="model-chip-del" data-model-delete="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${t('model.deleteTitle')}">×</button>
   </div>`;
+}
+
+function modelAddButton(providerId = '', compact = false) {
+  return `<button type="button" class="model-chip-add ${compact ? 'icon-only' : ''}" data-open-add-model="${escapeHtml(providerId)}" title="${t('model.add')}">
+    <span aria-hidden="true">+</span>${compact ? '' : `<span>${t('model.add')}</span>`}
+  </button>`;
 }
 
 function setEditorModels(editor, models) {
@@ -118,37 +170,36 @@ function setEditorModels(editor, models) {
   const selected = rows.find((item) => item.selected)?.modelId || rows[0]?.modelId;
   const mount = editor.querySelector('.model-chips');
   if (!mount) return;
-  mount.innerHTML = rows.length
+  const chips = rows.length
     ? rows.map((item) => modelChipHtml(item.modelId, item.modelId === selected, providerId)).join('')
-    : '<div class="model-empty">还没有模型</div>';
+    : `<div class="model-empty">${t('model.none')}</div>`;
+  mount.innerHTML = `${chips}${modelAddButton(providerId)}`;
 }
 
 function renderModelEditor(models, opts = {}) {
   const providerId = opts.providerId || '';
-  const compact = Boolean(opts.compact);
   const rows = models.map((item) => (typeof item === 'string' ? { modelId: item, selected: false } : { ...item }));
   if (rows.length && !rows.some((item) => item.selected)) rows[0].selected = true;
-  return `<div class="model-editor ${compact ? 'compact' : ''}" data-provider-id="${escapeHtml(providerId)}">
-    ${compact ? '' : '<div class="model-editor-label">模型</div>'}
-    <div class="model-chips">${rows.length ? rows.map((item) => modelChipHtml(item.modelId, Boolean(item.selected), providerId)).join('') : '<div class="model-empty">还没有模型</div>'}</div>
-    <div class="model-add-row">
-      <input class="model-add-input" type="text" placeholder="添加模型，如 grok-4.6" autocomplete="off" />
-      <button class="btn sm" type="button" data-model-add="${escapeHtml(providerId)}">添加</button>
-    </div>
-    ${compact ? '' : '<p class="form-tip">点选一个作为测通和启用时的默认模型。</p>'}
+  const chips = rows.length
+    ? rows.map((item) => modelChipHtml(item.modelId, Boolean(item.selected), providerId)).join('')
+    : `<div class="model-empty">${t('model.none')}</div>`;
+  return `<div class="model-editor" data-provider-id="${escapeHtml(providerId)}">
+    <div class="model-editor-label">${t('model.label')}</div>
+    <div class="model-chips">${chips}${modelAddButton(providerId)}</div>
+    <p class="form-tip">${t('model.tip')}</p>
   </div>`;
 }
 
 function addDraftModel(editor, modelId) {
   const id = String(modelId || '').trim();
   if (!id) {
-    toast('请输入模型名', true);
+    toast(t('model.needName'), true);
     return false;
   }
   const current = selectedFromEditor(editor);
   const models = modelsFromEditor(editor).map((item) => ({ modelId: item, selected: item === current }));
   if (models.some((item) => item.modelId === id)) {
-    toast(`已有模型 ${id}`, true);
+    toast(t('model.exists', { name: id }), true);
     return false;
   }
   models.push({ modelId: id, selected: models.length === 0 });
@@ -167,25 +218,6 @@ function removeDraftModel(editor, modelId) {
 
 function selectDraftModel(editor, modelId) {
   setEditorModels(editor, modelsFromEditor(editor).map((item) => ({ modelId: item, selected: item === modelId })));
-}
-
-async function addModelFromEditor(editor) {
-  if (!editor) return;
-  const input = editor.querySelector('.model-add-input');
-  const value = String(input?.value || '').trim();
-  const providerId = editor.dataset.providerId;
-  if (providerId) {
-    if (!value) {
-      toast('请输入模型名', true);
-      return;
-    }
-    await run(async () => {
-      await api(`/api/providers/${encodeURIComponent(providerId)}/models`, { method: 'POST', body: { modelId: value } });
-      if (input) input.value = '';
-    }, `已添加 ${value}`);
-    return;
-  }
-  if (addDraftModel(editor, value) && input) input.value = '';
 }
 
 function isCurrentProvider(provider) {
@@ -228,12 +260,12 @@ function agentNeedLabel(app = state.app) {
 
 function agentUrlField(app = state.app) {
   if (app === 'claude') {
-    return { name: 'anthropicUrl', protocol: 'anthropic', label: 'Anthropic 地址', placeholder: 'https://api.example.com' };
+    return { name: 'anthropicUrl', protocol: 'anthropic', label: t('url.anthropic'), placeholder: 'https://api.example.com' };
   }
   if (app === 'gemini') {
-    return { name: 'geminiUrl', protocol: 'gemini', label: 'Gemini 地址', placeholder: 'https://generativelanguage.googleapis.com/v1beta' };
+    return { name: 'geminiUrl', protocol: 'gemini', label: t('url.gemini'), placeholder: 'https://generativelanguage.googleapis.com/v1beta' };
   }
-  return { name: 'openaiUrl', protocol: 'openai', label: 'OpenAI 地址', placeholder: 'https://api.example.com/v1' };
+  return { name: 'openaiUrl', protocol: 'openai', label: t('url.openai'), placeholder: 'https://api.example.com/v1' };
 }
 
 function presetsForApp(app = state.app) {
@@ -242,11 +274,15 @@ function presetsForApp(app = state.app) {
 }
 
 function protocolLine(provider) {
-  return configuredProtocols(provider).map((item) => protocolUrl(provider, item)).join(' ') || '未配置地址';
+  return configuredProtocols(provider).map((item) => protocolUrl(provider, item)).join(' ') || t('card.noAddress');
 }
 
 function initial(name) {
   return String(name || '?').trim().slice(0, 2).toUpperCase();
+}
+
+function providerById(id) {
+  return state.providers.find((item) => item.id === id);
 }
 
 async function refresh() {
@@ -277,7 +313,8 @@ function syncOpenModelEditor() {
 function renderSwitcher() {
   $('#app-switcher').innerHTML = APPS.map((app) => {
     const live = state.status?.agents?.find((item) => item.id === app.id);
-    return `<button type="button" data-app="${app.id}" class="${state.app === app.id ? 'active' : ''}" title="${app.name}${live?.installed ? '' : '（未安装）'}">
+    const extra = live?.installed ? '' : t('status.notInstalled');
+    return `<button type="button" data-app="${app.id}" class="${state.app === app.id ? 'active' : ''}" title="${app.name}${extra ? ` (${extra})` : ''}">
       <span class="glyph ${app.id}">${app.name.slice(0, 1)}</span>${app.name}
     </button>`;
   }).join('');
@@ -289,16 +326,30 @@ function renderStatus() {
   const available = state.providers.filter((item) => supportsAgent(item)).length;
   $('#status-chip').innerHTML = `<span class="dot ${on ? 'on' : 'off'}"></span>
     <b>${live?.name || appName()}</b>
-    <span>${live?.model || '未配置'}</span>
-    <span>${live?.providerLabel || live?.bin || (live?.installed ? '已安装' : '未安装')}</span>
-    <span>${available} 个可用</span>`;
+    <span>${live?.model || t('status.unconfigured')}</span>
+    <span>${live?.providerLabel || live?.bin || (live?.installed ? t('status.installed') : t('status.notInstalled'))}</span>
+    <span>${t('status.available', { n: available })}</span>`;
+  const configLabel = $('#btn-config-label');
+  if (configLabel) configLabel.textContent = t('nav.viewConfigApp', { app: appName() });
   const configButton = $('#btn-agent-config');
-  if (configButton) configButton.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.7"/><path d="M7 8h10M7 12h7M7 16h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>查看 ${escapeHtml(appName())} 配置`;
-  const addBtn = $('#btn-add');
-  if (addBtn) {
-    const svg = addBtn.querySelector('svg')?.outerHTML || '';
-    addBtn.innerHTML = `${svg}添加 ${escapeHtml(appName())} 供应商`;
-  }
+  if (configButton) configButton.title = t('nav.viewConfigApp', { app: appName() });
+  const addLabel = $('#btn-add-label');
+  if (addLabel) addLabel.textContent = t('nav.addProviderApp', { app: appName() });
+}
+
+function renderCardModels(provider) {
+  const models = modelsOf(provider.id);
+  const current = models.find((item) => item.selected) || models[0];
+  const chips = models.length
+    ? models.map((item) => modelChipHtml(item.modelId, Boolean(item.selected), provider.id)).join('')
+    : `<div class="model-empty">${t('model.none')}</div>`;
+  return `<div class="card-models">
+    <div class="current-model">
+      <span class="current-model-label">${t('model.current')}</span>
+      <strong class="current-model-name">${current ? escapeHtml(current.modelId) : t('model.none')}</strong>
+    </div>
+    <div class="model-chips">${chips}${modelAddButton(provider.id, true)}</div>
+  </div>`;
 }
 
 function renderProviders() {
@@ -317,18 +368,17 @@ function renderProviders() {
   });
   if (!list.length) {
     const empty = !scoped.length && !q
-      ? { title: `还没有 ${appName()} 供应商`, detail: `添加一个只给 ${appName()} 用的预设或自定义中转。` }
-      : { title: '没有匹配的供应商', detail: '换个关键词，或清空搜索后再试。' };
+      ? { title: t('empty.noProviders', { app: appName() }), detail: t('empty.noProvidersDetail', { app: appName() }) }
+      : { title: t('empty.noMatch'), detail: t('empty.noMatchDetail') };
     $('#view-providers').innerHTML = `<div class="empty">
       <h3>${empty.title}</h3>
       <p>${empty.detail}</p>
-      <button class="btn primary" id="btn-add-empty" type="button">添加 ${escapeHtml(appName())} 供应商</button>
+      <button class="btn primary" id="btn-add-empty" type="button">${t('nav.addProviderApp', { app: appName() })}</button>
     </div>`;
     return;
   }
   $('#view-providers').innerHTML = `<div class="cards">${list.map((provider) => {
     const current = isCurrentProvider(provider);
-    const models = modelsOf(provider.id);
     const protocol = agentProtocol(provider);
     const url = agentUrl(provider);
     const tags = configuredProtocols(provider).map((item) => {
@@ -337,24 +387,26 @@ function renderProviders() {
     }).join('');
     return `<article class="card ${current ? 'current' : ''}">
       <div class="card-head">
-        <div class="icon-box">${initial(provider.name)}</div>
+        <div class="icon-box ${protocol || ''}">${initial(provider.name)}</div>
         <div class="card-title">
-          <h3>${escapeHtml(provider.name)}
-            ${current ? '<span class="badge">当前</span>' : ''}
-            ${provider.apiKey ? '' : '<span class="badge warn">无 KEY</span>'}
+          <h3>
+            <span class="card-name">${escapeHtml(provider.name)}</span>
+            ${current ? `<span class="badge">${t('badge.current')}</span>` : ''}
+            ${provider.apiKey ? '' : `<span class="badge warn">${t('badge.noKey')}</span>`}
           </h3>
-          <div class="tags">${tags}</div>
+          <div class="card-sub">
+            <div class="tags">${tags}</div>
+            ${provider.apiKey ? `<span class="key-pill" title="${t('badge.hasKey')}">KEY</span>` : ''}
+          </div>
         </div>
       </div>
-      <div class="card-body">
-        ${renderModelEditor(models, { providerId: provider.id, compact: true })}
-        <div class="meta url">${escapeHtml(protocol ? PROTOCOL_LABELS[protocol] : agentNeedLabel())} · ${escapeHtml(url || '未配置当前 Agent 地址')}</div>
-      </div>
+      ${renderCardModels(provider)}
+      <div class="meta url" title="${escapeHtml(url || '')}">${escapeHtml(protocol ? PROTOCOL_LABELS[protocol] : agentNeedLabel())} · ${escapeHtml(url || t('card.noUrl'))}</div>
       <div class="card-actions">
-        <button class="btn sm" data-edit="${provider.id}" type="button">编辑</button>
-        <button class="btn sm" data-ping="${provider.id}" type="button">测通</button>
-        <button class="btn sm danger" data-del="${provider.id}" type="button">删除</button>
-        <button class="btn sm ${current ? 'success' : 'primary'}" data-use="${provider.id}" type="button">${current ? '使用中' : '启用'}</button>
+        <button class="btn sm ghost" data-edit="${provider.id}" type="button">${t('action.edit')}</button>
+        <button class="btn sm ghost" data-ping="${provider.id}" type="button">${t('action.ping')}</button>
+        <button class="btn sm danger" data-del="${provider.id}" type="button">${t('action.delete')}</button>
+        <button class="btn sm ${current ? 'success' : 'primary'}" data-use="${provider.id}" type="button">${current ? t('action.inUse') : t('action.enable')}</button>
       </div>
     </article>`;
   }).join('')}</div>`;
@@ -363,18 +415,19 @@ function renderProviders() {
 function renderMcp() {
   $('#view-mcp').innerHTML = `
     <form class="form-grid" id="add-mcp">
-      <label class="field">名称<input name="name" required placeholder="filesystem" /></label>
-      <label class="field">命令<input name="command" placeholder="npx" /></label>
-      <label class="field">参数<input name="args" placeholder="-y,@modelcontextprotocol/server-filesystem" /></label>
-      <label class="field">&nbsp;<button class="btn primary" type="submit">添加 MCP</button></label>
+      <label class="field">${t('mcp.name')}<input name="name" required placeholder="filesystem" /></label>
+      <label class="field">${t('mcp.command')}<input name="command" placeholder="npx" /></label>
+      <label class="field">${t('mcp.args')}<input name="args" placeholder="-y,@modelcontextprotocol/server-filesystem" /></label>
+      <label class="field">&nbsp;<button class="btn primary" type="submit">${t('mcp.add')}</button></label>
     </form>
-    ${state.mcp.map((server) => `<div class="row"><div><b>${escapeHtml(server.name)}</b><div class="muted">${server.transport} · ${(server.agents || []).join(',') || 'all'}</div></div></div>`).join('') || '<div class="empty"><h3>尚未配置 MCP</h3></div>'}
-    <button class="btn" id="btn-sync-mcp" type="button">同步到各 Agent</button>
+    ${state.mcp.map((server) => `<div class="row"><div><b>${escapeHtml(server.name)}</b><div class="muted">${server.transport} · ${(server.agents || []).join(',') || t('mcp.all')}</div></div></div>`).join('') || `<div class="empty"><h3>${t('mcp.empty')}</h3></div>`}
+    <button class="btn" id="btn-sync-mcp" type="button">${t('mcp.sync')}</button>
   `;
 }
 
 function render() {
   if (state.view !== 'providers' && state.view !== 'mcp') state.view = 'providers';
+  renderChrome();
   renderSwitcher();
   renderStatus();
   document.querySelectorAll('[data-view]').forEach((btn) => btn.classList.toggle('primary', false));
@@ -395,6 +448,13 @@ function closeModal() {
   $('#modal').innerHTML = '';
 }
 
+function closeModelModal() {
+  const el = $('#model-modal');
+  if (!el) return;
+  el.classList.add('hidden');
+  el.innerHTML = '';
+}
+
 function renderProbe(steps) {
   return [...steps.values()].map((step) => {
     const meta = [step.method, step.httpStatus, step.ms != null ? `${step.ms}ms` : ''].filter(Boolean).join(' · ');
@@ -409,14 +469,37 @@ function renderProbe(steps) {
   }).join('');
 }
 
+function openAddModelModal(providerId = '') {
+  const provider = providerId ? providerById(providerId) : null;
+  const draftName = $('#add-provider [name=name]')?.value?.trim();
+  const name = provider?.name || draftName || '';
+  const modal = $('#model-modal');
+  modal.classList.remove('hidden');
+  modal.innerHTML = `<div class="dialog add-model-dialog">
+    <h2>${t('model.addTitle')}</h2>
+    <p class="form-tip">${name ? t('model.addFor', { name }) : t('model.addHint')}</p>
+    <form id="add-model-form" data-provider-id="${escapeHtml(providerId)}">
+      <label class="field">${t('model.name')}
+        <input name="modelId" required placeholder="${t('model.placeholder')}" autocomplete="off" />
+      </label>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="btn-cancel-model">${t('action.cancel')}</button>
+        <button class="btn primary" type="submit">${t('model.add')}</button>
+      </div>
+    </form>
+  </div>`;
+  modal.querySelector('input[name=modelId]')?.focus();
+}
+
 async function openPingModal(providerId) {
-  const provider = state.providers.find((item) => item.id === providerId);
+  const provider = providerById(providerId);
+  const current = selectedModelOf(providerId)?.modelId;
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>测通 ${escapeHtml(provider?.name || providerId)} · ${escapeHtml(appName())}${selectedModelOf(providerId)?.modelId ? ` · ${escapeHtml(selectedModelOf(providerId).modelId)}` : ''}</h2>
-    <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">开始测试</div></div></div></div>
+    <h2>${t('ping.title', { name: provider?.name || providerId, app: appName() })}${current ? ` · ${escapeHtml(current)}` : ''}</h2>
+    <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">${t('ping.start')}</div></div></div></div>
     <div class="dialog-actions">
-      <button class="btn" type="button" id="btn-cancel">关闭</button>
+      <button class="btn" type="button" id="btn-cancel">${t('action.close')}</button>
     </div>
   </div>`;
   const list = $('#probe-list');
@@ -426,7 +509,7 @@ async function openPingModal(providerId) {
     const data = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(data.error || res.statusText);
   }
-  if (!res.body) throw new Error('测通没有返回内容');
+  if (!res.body) throw new Error(t('ping.empty'));
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -449,7 +532,7 @@ async function openPingModal(providerId) {
     list.innerHTML = renderProbe(steps);
   }
   const summary = [...steps.values()].find((item) => item.id === 'summary');
-  if (summary) toast(summary.title || (summary.status === 'fail' ? '测通失败' : '测通完成'), summary.status === 'fail');
+  if (summary) toast(summary.title || (summary.status === 'fail' ? t('ping.fail') : t('ping.done')), summary.status === 'fail');
 }
 
 function protocolOf(provider, name) {
@@ -460,25 +543,25 @@ async function openAgentConfigModal() {
   const agentId = state.app;
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog config-dialog">
-    <h2>查看并编辑 ${escapeHtml(appName(agentId))} 配置</h2>
-    <div class="config-loading">正在读取配置文件…</div>
+    <h2>${t('config.loadingTitle', { app: appName(agentId) })}</h2>
+    <div class="config-loading">${t('config.loading')}</div>
   </div>`;
   try {
     const config = await api(`/api/agents/${encodeURIComponent(agentId)}/config`);
     $('#modal').innerHTML = `<div class="dialog config-dialog">
       <div class="config-heading">
         <div>
-          <h2>编辑 ${escapeHtml(config.agentName)} 配置</h2>
+          <h2>${t('config.editTitle', { name: config.agentName })}</h2>
           <div class="meta config-path">${escapeHtml(config.path)}</div>
         </div>
-        <span class="config-state ${config.exists ? 'exists' : 'missing'}">${config.exists ? '已存在' : '文件不存在，将新建'}</span>
+        <span class="config-state ${config.exists ? 'exists' : 'missing'}">${config.exists ? t('config.exists') : t('config.missing')}</span>
       </div>
-      <p class="config-tip">保存前会自动备份当前文件。保存后重新启动 ${escapeHtml(config.agentName)} 才会读取新配置。</p>
+      <p class="config-tip">${t('config.tip', { name: config.agentName })}</p>
       <form id="agent-config-form" data-agent="${escapeHtml(config.agentId)}">
         <textarea name="content" class="config-editor" spellcheck="false">${escapeHtml(config.content)}</textarea>
         <div class="dialog-actions">
-          <button class="btn" type="button" id="btn-cancel">取消</button>
-          <button class="btn primary" type="submit">保存配置</button>
+          <button class="btn" type="button" id="btn-cancel">${t('action.cancel')}</button>
+          <button class="btn primary" type="submit">${t('config.save')}</button>
         </div>
       </form>
     </div>`;
@@ -535,7 +618,7 @@ function fillPresetFields(form, presetId, overwrite = true) {
 
 async function openProviderModal(providerId) {
   const urlField = agentUrlField();
-  const presets = [{ id: 'custom', name: '自定义中转' }, ...presetsForApp()];
+  const presets = [{ id: 'custom', name: t('provider.custom') }, ...presetsForApp()];
   let provider = null;
   let models = [];
   if (providerId) {
@@ -546,27 +629,27 @@ async function openProviderModal(providerId) {
   const editing = Boolean(provider);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>${editing ? `编辑 ${escapeHtml(appName())} 供应商` : `添加 ${escapeHtml(appName())} 供应商`}</h2>
+    <h2>${editing ? t('provider.editTitle', { app: appName() }) : t('provider.addTitle', { app: appName() })}</h2>
     <form class="provider-form" id="${editing ? 'edit-provider' : 'add-provider'}" data-id="${editing ? escapeHtml(provider.id) : ''}">
       <div class="form-grid">
-        ${editing ? `<label class="field">ID<input value="${escapeHtml(provider.id)}" disabled /></label>` : `<label class="field">类型
+        ${editing ? `<label class="field">ID<input value="${escapeHtml(provider.id)}" disabled /></label>` : `<label class="field">${t('provider.type')}
           <select name="preset">${presets.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}</select>
         </label>`}
-        <label class="field">名称<input name="name" value="${escapeHtml(provider?.name || '')}" placeholder="agentrouter / kimi" autocomplete="off" /></label>
+        <label class="field">${t('provider.name')}<input name="name" value="${escapeHtml(provider?.name || '')}" placeholder="${t('provider.namePlaceholder')}" autocomplete="off" /></label>
         <label class="field">API Key
           <span class="key-row">
-            <input name="apiKey" type="password" value="${escapeHtml(provider?.apiKey || '')}" placeholder="${editing ? '已保存，可直接修改' : 'sk-...'}" autocomplete="off" />
-            <button class="btn sm" type="button" id="btn-toggle-key">显示</button>
+            <input name="apiKey" type="password" value="${escapeHtml(provider?.apiKey || '')}" placeholder="${editing ? t('provider.keySaved') : 'sk-...'}" autocomplete="off" />
+            <button class="btn sm" type="button" id="btn-toggle-key">${t('action.show')}</button>
           </span>
         </label>
         <label class="field">${escapeHtml(urlField.label)}<input name="${urlField.name}" value="${escapeHtml(protocolOf(provider, urlField.protocol))}" placeholder="${escapeHtml(urlField.placeholder)}" autocomplete="off" /></label>
       </div>
-      ${renderModelEditor(models, { providerId: editing ? provider.id : '', compact: false })}
-      ${editing ? '' : `<p class="form-tip">只创建给 ${escapeHtml(appName())} 用的供应商。灰色是预设默认值，你输入或改过的内容显示为纯黑色。</p>`}
+      ${renderModelEditor(models, { providerId: editing ? provider.id : '' })}
+      ${editing ? '' : `<p class="form-tip">${t('provider.tip', { app: appName() })}</p>`}
       <div class="dialog-actions">
-        ${editing ? `<button class="btn" type="button" data-ping="${escapeHtml(provider.id)}">测通</button>` : ''}
-        <button class="btn" type="button" id="btn-cancel">取消</button>
-        <button class="btn primary" type="submit">${editing ? '保存修改' : '添加'}</button>
+        ${editing ? `<button class="btn" type="button" data-ping="${escapeHtml(provider.id)}">${t('action.ping')}</button>` : ''}
+        <button class="btn" type="button" id="btn-cancel">${t('action.cancel')}</button>
+        <button class="btn primary" type="submit">${editing ? t('action.save') : t('action.add')}</button>
       </div>
     </form>
   </div>`;
@@ -575,6 +658,9 @@ async function openProviderModal(providerId) {
 }
 
 applyTheme(state.theme, false);
+renderChrome();
+renderLangOptions();
+renderThemeOptions();
 
 async function run(action, success) {
   try {
@@ -586,46 +672,70 @@ async function run(action, success) {
   }
 }
 
+function closeDockMenus(except) {
+  for (const id of ['theme-menu', 'lang-menu']) {
+    if (except && id === except) continue;
+    $(`#${id}`)?.classList.add('hidden');
+  }
+  $('#btn-theme')?.setAttribute('aria-expanded', 'false');
+  $('#btn-lang')?.setAttribute('aria-expanded', 'false');
+}
+
 document.body.addEventListener('change', (event) => {
-  const t = event.target;
-  if (!(t instanceof HTMLSelectElement) || t.name !== 'preset') return;
-  if (t.form?.id !== 'add-provider') return;
-  fillPresetFields(t.form, t.value, false);
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement) || target.name !== 'preset') return;
+  if (target.form?.id !== 'add-provider') return;
+  fillPresetFields(target.form, target.value, false);
 });
 
 document.body.addEventListener('input', (event) => {
-  const t = event.target;
-  if (!(t instanceof HTMLInputElement)) return;
-  if (t.form?.id !== 'add-provider' && t.form?.id !== 'edit-provider') return;
-  syncProviderFieldTone(t);
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.form?.id !== 'add-provider' && target.form?.id !== 'edit-provider') return;
+  syncProviderFieldTone(target);
 });
 
 document.body.addEventListener('click', async (event) => {
-  const t = event.target.closest('button, [data-app], [data-view]');
-  if (!t) {
+  const target = event.target.closest('button, [data-app], [data-view]');
+  if (!target) {
     if (event.target.id === 'modal' && !$('#add-provider, #edit-provider, #agent-config-form, .config-dialog')) closeModal();
-    if (!event.target.closest('#theme-picker')) $('#theme-menu')?.classList.add('hidden');
+    if (event.target.id === 'model-modal') closeModelModal();
+    if (!event.target.closest('#dock')) closeDockMenus();
     return;
   }
-  if (t.dataset.themeId) {
-    applyTheme(t.dataset.themeId);
-    $('#theme-menu').classList.add('hidden');
-    $('#btn-theme').setAttribute('aria-expanded', 'false');
-    toast(`已切换到${THEMES.find((item) => item.id === state.theme)?.name || '新主题'}`);
+  if (target.dataset.themeId) {
+    applyTheme(target.dataset.themeId);
+    closeDockMenus();
+    toast(t('theme.switched', { name: t(`theme.${state.theme}`) }));
     return;
   }
-  if (t.id === 'btn-theme') {
+  if (target.dataset.langId) {
+    applyLang(target.dataset.langId);
+    closeDockMenus();
+    return;
+  }
+  if (target.id === 'btn-theme') {
     const menu = $('#theme-menu');
-    const open = menu.classList.toggle('hidden');
-    t.setAttribute('aria-expanded', String(!open));
+    const open = menu.classList.contains('hidden');
+    closeDockMenus();
+    menu.classList.toggle('hidden', !open);
+    target.setAttribute('aria-expanded', String(open));
     return;
   }
-  if (t.id === 'btn-agent-config') {
+  if (target.id === 'btn-lang') {
+    const menu = $('#lang-menu');
+    const open = menu.classList.contains('hidden');
+    closeDockMenus();
+    menu.classList.toggle('hidden', !open);
+    target.setAttribute('aria-expanded', String(open));
+    return;
+  }
+  if (target.id === 'btn-agent-config') {
     openAgentConfigModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
-  if (t.dataset.app) {
-    state.app = t.dataset.app;
+  if (target.dataset.app) {
+    state.app = target.dataset.app;
     localStorage.setItem('msw-app', state.app);
     state.view = 'providers';
     try {
@@ -636,34 +746,33 @@ document.body.addEventListener('click', async (event) => {
     await refresh().catch((error) => toast(error.message || String(error), true));
     return;
   }
-  if (t.dataset.view) {
-    state.view = t.dataset.view;
+  if (target.dataset.view) {
+    state.view = target.dataset.view;
     render();
     return;
   }
-  if (t.hasAttribute('data-model-add')) {
-    addModelFromEditor(t.closest('.model-editor')).catch((error) => toast(error.message || String(error), true));
+  if (target.hasAttribute('data-open-add-model')) {
+    openAddModelModal(target.getAttribute('data-open-add-model') || '');
     return;
   }
-  if (t.hasAttribute('data-model-delete')) {
-    const editor = t.closest('.model-editor');
-    const providerId = editor?.dataset.providerId;
-    const modelId = t.dataset.model;
+  if (target.hasAttribute('data-model-delete')) {
+    const editor = target.closest('.model-editor') || target.closest('.card-models');
+    const providerId = target.getAttribute('data-model-delete') || editor?.dataset.providerId;
+    const modelId = target.dataset.model;
     if (providerId) {
-      if (!confirm(`删除模型 ${modelId}？`)) return;
-      run(() => api(`/api/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' }), `已删除 ${modelId}`)
-        .catch((error) => toast(error.message || String(error), true));
+      if (!confirm(t('model.deleteConfirm', { name: modelId }))) return;
+      run(() => api(`/api/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' }), t('model.deleted', { name: modelId }));
     } else {
-      removeDraftModel(editor, modelId);
+      removeDraftModel($('#modal .model-editor'), modelId);
     }
     return;
   }
-  if (t.hasAttribute('data-model-select')) {
-    const editor = t.closest('.model-editor');
-    const providerId = editor?.dataset.providerId;
-    const modelId = t.dataset.model;
+  if (target.hasAttribute('data-model-select')) {
+    const editor = target.closest('.model-editor');
+    const providerId = target.getAttribute('data-model-select') || editor?.dataset.providerId;
+    const modelId = target.dataset.model;
     if (!providerId) {
-      selectDraftModel(editor, modelId);
+      selectDraftModel(editor || $('#modal .model-editor'), modelId);
       return;
     }
     run(async () => {
@@ -671,45 +780,50 @@ document.body.addEventListener('click', async (event) => {
         method: 'POST',
         body: { agent: state.app },
       });
-      toast(result.applied ? `已切换到 ${modelId}` : `已选择 ${modelId}，测通和启用将使用该模型`);
-    }).catch((error) => toast(error.message || String(error), true));
+      toast(result.applied ? t('model.switched', { name: modelId }) : t('model.selected', { name: modelId }));
+    });
     return;
   }
-  if (t.id === 'btn-add' || t.id === 'btn-add-empty') {
+  if (target.id === 'btn-add' || target.id === 'btn-add-empty') {
     openProviderModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
-  if (t.id === 'btn-toggle-key') {
-    const input = t.parentElement.querySelector('input');
+  if (target.id === 'btn-toggle-key') {
+    const input = target.parentElement.querySelector('input');
     if (input) {
       input.type = input.type === 'password' ? 'text' : 'password';
-      t.textContent = input.type === 'password' ? '显示' : '隐藏';
+      target.textContent = input.type === 'password' ? t('action.show') : t('action.hide');
     }
     return;
   }
-  if (t.dataset.edit) {
-    openProviderModal(t.dataset.edit).catch((error) => toast(error.message || String(error), true));
+  if (target.dataset.edit) {
+    openProviderModal(target.dataset.edit).catch((error) => toast(error.message || String(error), true));
     return;
   }
-  if (t.id === 'btn-cancel') {
+  if (target.id === 'btn-cancel') {
     closeModal();
     return;
   }
-  if (t.dataset.use) {
-    await run(() => api('/api/switch', { method: 'POST', body: { target: t.dataset.use, agent: state.app } }), '已切换');
+  if (target.id === 'btn-cancel-model') {
+    closeModelModal();
     return;
   }
-  if (t.dataset.ping) {
-    openPingModal(t.dataset.ping).catch((error) => toast(error.message || String(error), true));
+  if (target.dataset.use) {
+    await run(() => api('/api/switch', { method: 'POST', body: { target: target.dataset.use, agent: state.app } }), t('provider.switched'));
     return;
   }
-  if (t.dataset.del) {
-    if (!confirm(`删除供应商 ${t.dataset.del}？`)) return;
-    await run(() => api(`/api/providers/${t.dataset.del}`, { method: 'DELETE' }), '已删除');
+  if (target.dataset.ping) {
+    openPingModal(target.dataset.ping).catch((error) => toast(error.message || String(error), true));
     return;
   }
-  if (t.id === 'btn-sync-mcp') {
-    await run(() => api('/api/mcp/sync', { method: 'POST', body: {} }), 'MCP 已同步');
+  if (target.dataset.del) {
+    const provider = providerById(target.dataset.del);
+    if (!confirm(t('provider.deleteConfirm', { name: provider?.name || target.dataset.del }))) return;
+    await run(() => api(`/api/providers/${target.dataset.del}`, { method: 'DELETE' }), t('provider.deleted'));
+    return;
+  }
+  if (target.id === 'btn-sync-mcp') {
+    await run(() => api('/api/mcp/sync', { method: 'POST', body: {} }), t('mcp.synced'));
   }
 });
 
@@ -719,13 +833,33 @@ document.body.addEventListener('submit', async (event) => {
   if (!(form instanceof HTMLFormElement)) return;
   const data = Object.fromEntries(new FormData(form).entries());
   try {
+    if (form.id === 'add-model-form') {
+      const modelId = String(data.modelId || '').trim();
+      const providerId = form.dataset.providerId || '';
+      if (!modelId) {
+        toast(t('model.needName'), true);
+        return;
+      }
+      if (providerId) {
+        await api(`/api/providers/${encodeURIComponent(providerId)}/models`, { method: 'POST', body: { modelId } });
+        toast(t('model.added', { name: modelId }));
+        closeModelModal();
+        await refresh();
+        return;
+      }
+      if (addDraftModel($('#modal .model-editor'), modelId)) {
+        toast(t('model.added', { name: modelId }));
+        closeModelModal();
+      }
+      return;
+    }
     if (form.id === 'agent-config-form') {
       await api(`/api/agents/${encodeURIComponent(form.dataset.agent)}/config`, {
         method: 'PUT',
         body: { content: String(data.content || '') },
       });
       closeModal();
-      toast('Agent 配置已保存，并已创建备份');
+      toast(t('config.saved'));
       await refresh();
       return;
     }
@@ -745,10 +879,10 @@ document.body.addEventListener('submit', async (event) => {
         body.defaultModel = selectedFromEditor(editor) || undefined;
         if (!body.models.length) delete body.models;
         await api('/api/providers', { method: 'POST', body });
-        toast('供应商已添加');
+        toast(t('provider.added'));
       } else {
         await api(`/api/providers/${encodeURIComponent(form.dataset.id)}`, { method: 'PUT', body });
-        toast('供应商已更新');
+        toast(t('provider.updated'));
       }
       closeModal();
     }
@@ -757,20 +891,12 @@ document.body.addEventListener('submit', async (event) => {
         method: 'POST',
         body: { ...data, args: String(data.args || '').split(',').map((item) => item.trim()).filter(Boolean) },
       });
-      toast('MCP 已添加');
+      toast(t('mcp.added'));
     }
     await refresh();
   } catch (error) {
     toast(error.message || String(error), true);
   }
-});
-
-document.body.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter') return;
-  const t = event.target;
-  if (!(t instanceof HTMLInputElement) || !t.classList.contains('model-add-input')) return;
-  event.preventDefault();
-  addModelFromEditor(t.closest('.model-editor')).catch((error) => toast(error.message || String(error), true));
 });
 
 $('#search').addEventListener('input', (event) => {

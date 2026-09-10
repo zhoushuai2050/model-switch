@@ -20,15 +20,15 @@
           </span>
           <div>
             <strong>Model Switch</strong>
-            <span>本机 Agent 切换台</span>
+            <span id="brand-sub">本机 Agent 切换台</span>
           </div>
         </div>
         <nav class="switcher" id="app-switcher"></nav>
         <div class="title-actions">
-          <button class="btn" data-view="mcp" type="button">MCP</button>
+          <button class="btn" data-view="mcp" id="btn-mcp" type="button">MCP</button>
           <button class="btn primary" id="btn-add" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            添加供应商
+            <span id="btn-add-label">添加供应商</span>
           </button>
         </div>
       </header>
@@ -37,9 +37,9 @@
         <div class="toolbar">
           <div class="status-chip" id="status-chip">加载中…</div>
           <div class="toolbar-actions">
-            <button class="btn" id="btn-agent-config" type="button" title="查看并编辑当前 Agent 配置文件">
+            <button class="btn" id="btn-agent-config" type="button">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.7"/><path d="M7 8h10M7 12h7M7 16h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-              查看配置
+              <span id="btn-config-label">查看配置</span>
             </button>
             <label class="search">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -52,18 +52,31 @@
       </main>
     </div>
 
-    <div class="theme-picker" id="theme-picker">
-      <button class="theme-toggle" id="btn-theme" type="button" aria-expanded="false" aria-controls="theme-menu" title="切换配色方案">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 1.15-3.16 1.8 1.8 0 0 1 1.15-3.16H17a4 4 0 0 0 4-4C21 6.43 17 3 12 3Z" stroke="currentColor" stroke-width="1.7"/><circle cx="7.5" cy="10" r="1" fill="currentColor"/><circle cx="11" cy="7" r="1" fill="currentColor"/><circle cx="16" cy="7.5" r="1" fill="currentColor"/></svg>
-        <span>主题</span>
-      </button>
-      <div class="theme-menu hidden" id="theme-menu">
-        <div class="theme-menu-title">配色方案</div>
-        <div class="theme-options" id="theme-options"></div>
+    <div class="dock" id="dock">
+      <div class="picker" id="lang-picker">
+        <button class="dock-toggle" id="btn-lang" type="button" aria-expanded="false" aria-controls="lang-menu">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h18M12 3c2.6 2.6 4 5.7 4 9s-1.4 6.4-4 9c-2.6-2.6-4-5.7-4-9s1.4-6.4 4-9Z" stroke="currentColor" stroke-width="1.7"/></svg>
+          <span id="btn-lang-label">语言</span>
+        </button>
+        <div class="dock-menu hidden" id="lang-menu">
+          <div class="dock-menu-title" id="lang-menu-title">界面语言</div>
+          <div class="dock-options" id="lang-options"></div>
+        </div>
+      </div>
+      <div class="picker" id="theme-picker">
+        <button class="dock-toggle" id="btn-theme" type="button" aria-expanded="false" aria-controls="theme-menu">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 1.15-3.16 1.8 1.8 0 0 1 1.15-3.16H17a4 4 0 0 0 4-4C21 6.43 17 3 12 3Z" stroke="currentColor" stroke-width="1.7"/><circle cx="7.5" cy="10" r="1" fill="currentColor"/><circle cx="11" cy="7" r="1" fill="currentColor"/><circle cx="16" cy="7.5" r="1" fill="currentColor"/></svg>
+          <span id="btn-theme-label">主题</span>
+        </button>
+        <div class="dock-menu hidden" id="theme-menu">
+          <div class="dock-menu-title" id="theme-menu-title">配色方案</div>
+          <div class="dock-options" id="theme-options"></div>
+        </div>
       </div>
     </div>
     <div class="modal hidden" id="modal"></div>
+    <div class="modal hidden" id="model-modal"></div>
     <div class="toast hidden" id="toast"></div>
-    <script src="/app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>
