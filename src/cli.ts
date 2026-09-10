@@ -144,7 +144,8 @@ function list(kind: string): void {
       }
       for (const model of models) {
         const provider = providers.get(model.providerId);
-        console.log(`${model.modelId.padEnd(28)} ${provider?.name || model.providerId}`);
+        const mark = model.selected ? '*' : ' ';
+        console.log(`${mark} ${model.modelId.padEnd(28)} ${provider?.name || model.providerId}`);
       }
       return;
     }
@@ -194,6 +195,28 @@ async function providerCommand(): Promise<void> {
     console.log(`已删除供应商 ${provider.name}`);
     return;
   }
+  if (sub === 'add-model') {
+    if (!rest[0] || !rest[1]) throw new EngineError('Usage: msw provider add-model <供应商> <模型>');
+    const model = engine.addModel(rest[0], rest.slice(1).join(' '));
+    console.log(`已添加模型 ${model.modelId}`);
+    return;
+  }
+  if (sub === 'rm-model') {
+    if (!rest[0] || !rest[1]) throw new EngineError('Usage: msw provider rm-model <供应商> <模型>');
+    const model = engine.removeModel(rest[0], rest.slice(1).join(' '));
+    console.log(`已删除模型 ${model.modelId}`);
+    return;
+  }
+  if (sub === 'select-model') {
+    if (!rest[0] || !rest[1]) throw new EngineError('Usage: msw provider select-model <供应商> <模型>');
+    const result = engine.selectModel(rest[0], rest.slice(1).join(' '), { agent: flag(args, 'agent') || undefined });
+    if (result.applied) {
+      printSwitch(result.applied);
+      return;
+    }
+    console.log(`已选择模型 ${result.model.modelId}，测通和启用将使用该模型`);
+    return;
+  }
   if (sub === 'set-key') {
     if (!rest[0] || !rest[1]) throw new EngineError('Usage: msw provider set-key <id> <key>');
     engine.updateProvider(rest[0], { apiKey: rest[1] });
@@ -215,7 +238,7 @@ async function providerCommand(): Promise<void> {
     return;
   }
   throw new EngineError(
-    'Usage: msw provider ls|add|rm|set-key|ping|presets\n  msw provider ls           显示所有供应商\n  msw provider rm <名称>    删除供应商\n自定义中转: msw help custom',
+    'Usage: msw provider ls|add|rm|add-model|rm-model|select-model|set-key|ping|presets\n  msw provider ls                    显示所有供应商\n  msw provider rm <名称>             删除供应商\n  msw provider add-model <名> <模型>  给供应商加模型\n  msw provider rm-model <名> <模型>   删除模型\n  msw provider select-model <名> <模型>  设为测通/启用默认模型\n自定义中转: msw help custom',
   );
 }
 

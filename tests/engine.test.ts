@@ -457,7 +457,67 @@ test('updateProvider keeps key when blank and replaces models', () => {
   assert.equal(updated.apiKey, 'sk-old');
   assert.equal(updated.protocols.openai?.baseUrl, 'https://new.example/v1');
   const models = engine.getProvider(created.id).models.map((item) => item.modelId);
-  assert.deepEqual(models.sort(), ['deepseek-v4-flash', 'gpt-5.6-sol']);
+  assert.deepEqual(models, ['gpt-5.6-sol', 'deepseek-v4-flash']);
+  assert.equal(engine.getProvider(created.id).models[0].selected, true);
+});
+
+test('provider models keep insertion order and first item is selected', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk',
+    openaiUrl: 'https://relay.example/v1',
+    models: ['zzz-last', 'aaa-first'],
+  });
+  const models = engine.getProvider(created.id).models;
+  assert.deepEqual(models.map((item) => item.modelId), ['zzz-last', 'aaa-first']);
+  assert.equal(models[0].selected, true);
+  assert.equal(models[1].selected, false);
+});
+
+test('add/remove/select models updates the provider default', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk',
+    openaiUrl: 'https://relay.example/v1',
+    models: ['grok-4.6'],
+  });
+  engine.addModel(created.id, 'gpt-5.6-sol');
+  engine.addModel(created.id, 'deepseek-v4-flash');
+  let models = engine.getProvider(created.id).models;
+  assert.deepEqual(models.map((item) => item.modelId), ['grok-4.6', 'gpt-5.6-sol', 'deepseek-v4-flash']);
+  assert.equal(models.find((item) => item.selected)?.modelId, 'grok-4.6');
+
+  engine.selectModel(created.id, 'gpt-5.6-sol', { apply: false });
+  models = engine.getProvider(created.id).models;
+  assert.equal(models.find((item) => item.selected)?.modelId, 'gpt-5.6-sol');
+
+  const removed = engine.removeModel(created.id, 'gpt-5.6-sol');
+  assert.equal(removed.modelId, 'gpt-5.6-sol');
+  models = engine.getProvider(created.id).models;
+  assert.deepEqual(models.map((item) => item.modelId), ['grok-4.6', 'deepseek-v4-flash']);
+  assert.equal(models.find((item) => item.selected)?.modelId, 'grok-4.6');
+
+  assert.throws(() => engine.addModel(created.id, 'grok-4.6'), /已有模型/);
+  engine.removeModel(created.id, 'deepseek-v4-flash');
+  assert.throws(() => engine.removeModel(created.id, 'grok-4.6'), /至少保留一个模型/);
+});
+
+test('applyProvider uses the selected model instead of alphabetical order', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk',
+    openaiUrl: 'https://relay.example/v1',
+    models: ['zzz-default', 'aaa-other'],
+  });
+  engine.setAgent('codex');
+  engine.selectModel(created.id, 'aaa-other', { apply: false });
+  const result = engine.use(created.id);
+  assert.equal(result.model, 'aaa-other');
+  const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');
+  assert.match(text, /model = "aaa-other"/);
 });
 
 test('ping sends a real test message and reports the reply', async () => {
@@ -503,6 +563,42 @@ test('ping sends a real test message and reports the reply', async () => {
     assert.equal(requestBody?.stream, true);
     const responseStep = [...result.steps].reverse().find((step) => step.id === 'openai-responses');
     assert.match(responseStep?.detail || '', /今天天气不错/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('ping uses the selected model, not the alphabetically first one', async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const server = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/responses') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ output_text: 'ok' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end('no');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('no port');
+  try {
+    const engine = new Engine();
+    const created = engine.addProvider({
+      name: 'local',
+      apiKey: 'sk-x',
+      openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      models: ['zzz-selected', 'aaa-first'],
+    });
+    engine.selectModel(created.id, 'zzz-selected', { apply: false });
+    const result = await engine.ping(created.id, 'codex');
+    assert.equal(result.ok, true);
+    assert.equal(requestBody?.model, 'zzz-selected');
+    const load = [...result.steps].reverse().find((step) => step.id === 'load');
+    assert.match(load?.detail || '', /zzz-selected（当前）/);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }

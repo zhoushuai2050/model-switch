@@ -49,7 +49,7 @@ export function printProviders(providers, models = []) {
             .filter(([, cfg]) => cfg?.baseUrl);
         const tags = protocols.map(([name]) => PROTOCOL_LABELS[name]).join(' ') || '无协议';
         const key = provider.apiKey ? color.green('KEY') : color.dim('无KEY');
-        const providerModels = models.filter((item) => item.providerId === provider.id).map((item) => item.modelId);
+        const providerModels = models.filter((item) => item.providerId === provider.id).map((item) => (item.selected ? `${item.modelId}（当前）` : item.modelId));
         console.log(`${color.bold(provider.name)}  ${key}  ${color.dim(tags)}`);
         if ((nameCount.get(provider.name.toLowerCase()) || 0) > 1) {
             console.log(`  id         ${provider.id}`);

@@ -87,6 +87,7 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
       anthropicUrl: body.anthropicUrl ? String(body.anthropicUrl) : undefined,
       geminiUrl: body.geminiUrl ? String(body.geminiUrl) : undefined,
       models: Array.isArray(body.models) ? body.models.map(String) : undefined,
+      defaultModel: body.defaultModel ? String(body.defaultModel) : undefined,
       agent: body.agent ? String(body.agent) : undefined,
     });
     return send(res, 200, provider);
@@ -102,9 +103,31 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
       geminiUrl: body.geminiUrl ? String(body.geminiUrl) : undefined,
       wireApi: body.wireApi === 'chat' || body.wireApi === 'responses' ? body.wireApi : undefined,
       models: Array.isArray(body.models) ? body.models.map(String) : undefined,
+      defaultModel: body.defaultModel ? String(body.defaultModel) : undefined,
       notes: body.notes != null ? String(body.notes) : undefined,
       websiteUrl: body.websiteUrl ? String(body.websiteUrl) : undefined,
     }));
+  }
+  if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/models')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    const body = await readBody(req);
+    return send(res, 200, engine.addModel(id, String(body.modelId || body.model || '')));
+  }
+  if (req.method === 'POST' && path.startsWith('/api/providers/') && path.includes('/models/') && path.endsWith('/select')) {
+    const parts = path.split('/');
+    const id = decodeURIComponent(parts[3] || '');
+    const model = decodeURIComponent(parts[5] || '');
+    const body = await readBody(req);
+    return send(res, 200, engine.selectModel(id, model, {
+      agent: body.agent ? String(body.agent) : undefined,
+      apply: body.apply === false ? false : undefined,
+    }));
+  }
+  if (req.method === 'DELETE' && path.startsWith('/api/providers/') && path.includes('/models/')) {
+    const parts = path.split('/');
+    const id = decodeURIComponent(parts[3] || '');
+    const model = decodeURIComponent(parts[5] || '');
+    return send(res, 200, engine.removeModel(id, model));
   }
   if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/key')) {
     const id = path.split('/')[3];

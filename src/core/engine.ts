@@ -109,6 +109,7 @@ export class Engine {
     geminiUrl?: string;
     wireApi?: 'chat' | 'responses';
     models?: string[];
+    defaultModel?: string;
     agent?: string;
   }): Provider {
     const preset = input.preset ? getPreset(input.preset) : undefined;
@@ -136,19 +137,7 @@ export class Engine {
       updatedAt: now(),
     };
     db.upsertProvider(provider);
-    const models =
-      input.models?.map((modelId) => ({ modelId, alias: slug(modelId), agentHint: 'any' as const })) ||
-      preset?.models ||
-      [{ modelId: 'default', alias: 'default', agentHint: 'any' as const }];
-    for (const model of models) {
-      db.upsertModel({
-        id: `${id}-${slug(model.modelId)}`,
-        providerId: id,
-        modelId: model.modelId,
-        alias: model.alias || slug(model.modelId),
-        agentHint: model.agentHint || 'any',
-      });
-    }
+    replaceProviderModels(id, modelListForAdd(input.models, preset), input.defaultModel);
     return provider;
   }
 
@@ -162,6 +151,7 @@ export class Engine {
     geminiUrl?: string;
     wireApi?: 'chat' | 'responses';
     models?: string[];
+    defaultModel?: string;
     protocols?: Provider['protocols'];
   }): Provider {
     const provider = db.getProvider(id);
@@ -201,18 +191,7 @@ export class Engine {
     db.upsertProvider(next);
     if (patch.models) {
       const models = patch.models.map((item) => item.trim()).filter(Boolean);
-      if (models.length) {
-        db.deleteModelsForProvider(id);
-        for (const modelId of models) {
-          db.upsertModel({
-            id: `${id}-${slug(modelId)}`,
-            providerId: id,
-            modelId,
-            alias: slug(modelId),
-            agentHint: 'any',
-          });
-        }
-      }
+      if (models.length) replaceProviderModels(id, models, patch.defaultModel);
     }
     return next;
   }
@@ -228,6 +207,62 @@ export class Engine {
     }
     db.deleteProvider(provider.id);
     return provider;
+  }
+
+  addModel(providerQuery: string, modelId: string): ModelRow {
+    const provider = requireProvider(providerQuery);
+    const id = modelId.trim();
+    if (!id) throw new EngineError('模型名不能为空');
+    const existing = db.modelsForProvider(provider.id);
+    if (existing.some((item) => item.modelId === id)) {
+      throw new EngineError(`供应商 ${provider.name} 已有模型 ${id}`);
+    }
+    const model: ModelRow = {
+      id: modelRowId(provider.id, id),
+      providerId: provider.id,
+      modelId: id,
+      alias: slug(id),
+      agentHint: 'any',
+      sortOrder: db.nextModelSortOrder(provider.id),
+      selected: existing.length === 0,
+    };
+    db.upsertModel(model);
+    if (model.selected) db.setSelectedModel(provider.id, model.id);
+    return db.modelsForProvider(provider.id).find((item) => item.id === model.id) || model;
+  }
+
+  removeModel(providerQuery: string, modelQuery: string): ModelRow {
+    const provider = requireProvider(providerQuery);
+    const models = db.modelsForProvider(provider.id);
+    const found = findProviderModel(models, modelQuery);
+    if (!found) throw new EngineError(`供应商 ${provider.name} 没有模型 ${modelQuery}`);
+    if (models.length <= 1) throw new EngineError('至少保留一个模型');
+    db.deleteModel(found.id);
+    if (found.selected) {
+      const rest = db.modelsForProvider(provider.id);
+      if (rest[0]) db.setSelectedModel(provider.id, rest[0].id);
+    }
+    return found;
+  }
+
+  selectModel(providerQuery: string, modelQuery: string, opts: { agent?: string; apply?: boolean } = {}): {
+    provider: Provider;
+    model: ModelRow;
+    applied?: SwitchResult;
+  } {
+    const agent = opts.agent && isAgentId(opts.agent) ? opts.agent : db.getState().currentAgent;
+    const provider = findProvider(providerQuery, agent) || findProvider(providerQuery);
+    if (!provider) throw new EngineError(`Unknown provider: ${providerQuery}`);
+    const found = findProviderModel(db.modelsForProvider(provider.id), modelQuery);
+    if (!found) throw new EngineError(`供应商 ${provider.name} 没有模型 ${modelQuery}`);
+    db.setSelectedModel(provider.id, found.id);
+    const model = { ...found, selected: true };
+    const live = agent ? isLiveProvider(provider, agent) : false;
+    const shouldApply = opts.apply === true || (opts.apply !== false && live);
+    if (shouldApply && agent) {
+      return { provider, model, applied: applySpecific(provider, found.modelId, agent) };
+    }
+    return { provider, model };
   }
 
   getAgentConfig(agentId: string): {
@@ -303,16 +338,7 @@ export class Engine {
     const provider = findProvider(providerId, agent);
     if (!provider) throw new EngineError(`Unknown provider: ${providerId}`);
     const model = defaultModelFor(provider.id, agent);
-    const result = emptyResult(scope);
-    result.providerId = provider.id;
-    result.model = model;
-    result.agentId = agent;
-    applyPayload(agent, { provider, model }, result);
-    if (scope === 'global') {
-      db.setState({ currentModels: { [agent]: model } });
-    }
-    db.logSwitch({ providerId: provider.id, agentId: agent, modelId: model, scope });
-    return result;
+    return applySpecific(provider, model, agent, scope);
   }
 
   applyModel(modelQuery: string, agentId?: AgentId, scope: 'global' | 'session' = 'global'): SwitchResult {
@@ -321,14 +347,8 @@ export class Engine {
     if (!found) throw new EngineError(`Unknown model: ${modelQuery}`);
     const provider = db.getProvider(found.providerId);
     if (!provider) throw new EngineError(`Model ${modelQuery} has no provider`);
-    const result = emptyResult(scope);
-    result.providerId = provider.id;
-    result.model = found.modelId;
-    result.agentId = agent;
-    applyPayload(agent, { provider, model: found.modelId }, result);
-    if (scope === 'global') db.setState({ currentModels: { [agent]: found.modelId } });
-    db.logSwitch({ providerId: provider.id, agentId: agent, modelId: found.modelId, scope });
-    return result;
+    db.setSelectedModel(provider.id, found.id);
+    return applySpecific(provider, found.modelId, agent, scope);
   }
 
   launch(opts: { agent?: string; target?: string; extraArgs?: string[] } = {}): LaunchSpec {
@@ -411,12 +431,16 @@ export class Engine {
       yield { id: 'summary', title: '测通失败', status: 'fail', detail };
       return;
     }
-    const models = db.modelsForProvider(provider.id).map((item) => item.modelId);
+    const modelRows = db.modelsForProvider(provider.id);
+    const pingModel = selectedModelId(modelRows);
+    const modelLabel = modelRows.length
+      ? modelRows.map((item) => `${item.modelId}${item.selected || item.modelId === pingModel ? '（当前）' : ''}`).join(', ')
+      : '无';
     yield {
       id: 'load',
       title: '读取供应商配置',
       status: 'ok',
-      detail: `${provider.name} · ${provider.apiKey ? '已配置 Key' : '未配置 Key'} · 模型 ${models.join(', ') || '无'}`,
+      detail: `${provider.name} · ${provider.apiKey ? '已配置 Key' : '未配置 Key'} · 模型 ${modelLabel}`,
     };
 
     const wanted = protocolsForAgent(agent);
@@ -440,7 +464,7 @@ export class Engine {
       const proto = provider.protocols[protocol];
       if (!proto) continue;
       const headers = authHeaders(protocol, provider.apiKey);
-      const posts = postProbes(protocol, proto.baseUrl, models[0], headers, proto.wireApi, pingPrompt);
+      const posts = postProbes(protocol, proto.baseUrl, pingModel, headers, proto.wireApi, pingPrompt);
       let requestRank: PingStatus | undefined;
 
       if (!posts.length) {
@@ -545,12 +569,12 @@ function applyPayload(agentId: AgentId, payload: ApplyPayload, result: SwitchRes
     });
     return;
   }
-  const models = db.modelsForProvider(payload.provider.id).map((row) => row.modelId);
+  const models = modelIdsForPayload(payload.provider.id, payload.model);
   payload = {
     ...payload,
     extra: {
       ...(payload.extra || {}),
-      models: models.length ? models : [payload.model],
+      models,
     },
   };
   try {
@@ -594,7 +618,7 @@ function payloadForAgent(agent: AgentId): ApplyPayload {
   const live = getAdapter(agent).readStatus();
   const provider = matchLiveProvider(agent, live);
   if (provider) {
-    return { provider, model: live.model || defaultModelFor(provider.id, agent) };
+    return { provider, model: defaultModelFor(provider.id, agent) };
   }
   const modelId = db.getState().currentModels[agent];
   if (modelId) {
@@ -605,13 +629,99 @@ function payloadForAgent(agent: AgentId): ApplyPayload {
   throw new EngineError(`No provider configured for ${agent}. Run msw use <provider>`);
 }
 
+function applySpecific(provider: Provider, model: string, agent: AgentId, scope: 'global' | 'session' = 'global'): SwitchResult {
+  const result = emptyResult(scope);
+  result.providerId = provider.id;
+  result.model = model;
+  result.agentId = agent;
+  applyPayload(agent, { provider, model }, result);
+  if (scope === 'global') db.setState({ currentModels: { [agent]: model } });
+  db.logSwitch({ providerId: provider.id, agentId: agent, modelId: model, scope });
+  return result;
+}
+
 function defaultModelFor(providerId: string, agent: AgentId): string {
   const models = db.modelsForProvider(providerId);
+  const selected = selectedModelId(models);
+  if (selected) return selected;
   const hinted = models.find((model) => model.agentHint === agent) || models.find((model) => model.agentHint === 'any');
   if (hinted) return hinted.modelId;
   if (models[0]) return models[0].modelId;
   const live = getAdapter(agent).readStatus().model;
   return live || 'default';
+}
+
+function selectedModelId(models: ModelRow[]): string | undefined {
+  return models.find((item) => item.selected)?.modelId || models[0]?.modelId;
+}
+
+function modelIdsForPayload(providerId: string, current: string): string[] {
+  const models = db.modelsForProvider(providerId).map((row) => row.modelId);
+  const ordered = current && models.includes(current)
+    ? [current, ...models.filter((item) => item !== current)]
+    : current
+      ? [current, ...models]
+      : models;
+  return [...new Set(ordered.length ? ordered : current ? [current] : [])];
+}
+
+function modelListForAdd(models: string[] | undefined, preset?: Preset): Array<{ modelId: string; alias?: string; agentHint?: AgentId | 'any' }> {
+  if (models?.length) {
+    return models.map((modelId) => ({ modelId, alias: slug(modelId), agentHint: 'any' as const }));
+  }
+  if (preset?.models?.length) return preset.models;
+  return [{ modelId: 'default', alias: 'default', agentHint: 'any' }];
+}
+
+function replaceProviderModels(
+  providerId: string,
+  models: Array<string | { modelId: string; alias?: string; agentHint?: AgentId | 'any' }>,
+  defaultModel?: string,
+): void {
+  const rows = models
+    .map((item) => (typeof item === 'string' ? { modelId: item.trim() } : { ...item, modelId: item.modelId.trim() }))
+    .filter((item) => item.modelId);
+  if (!rows.length) return;
+  const previous = db.modelsForProvider(providerId).find((item) => item.selected)?.modelId;
+  const ids = rows.map((item) => item.modelId);
+  const chosen = (defaultModel && ids.includes(defaultModel))
+    ? defaultModel
+    : (previous && ids.includes(previous) ? previous : ids[0]);
+  db.deleteModelsForProvider(providerId);
+  rows.forEach((model, index) => {
+    db.upsertModel({
+      id: modelRowId(providerId, model.modelId),
+      providerId,
+      modelId: model.modelId,
+      alias: model.alias || slug(model.modelId),
+      agentHint: model.agentHint || 'any',
+      sortOrder: index,
+      selected: model.modelId === chosen,
+    });
+  });
+}
+
+function modelRowId(providerId: string, modelId: string): string {
+  return `${providerId}-${slug(modelId)}`;
+}
+
+function findProviderModel(models: ModelRow[], query: string): ModelRow | undefined {
+  const needle = query.toLowerCase();
+  return (
+    models.find((item) => item.id.toLowerCase() === needle) ||
+    models.find((item) => item.modelId.toLowerCase() === needle) ||
+    models.find((item) => item.alias?.toLowerCase() === needle)
+  );
+}
+
+function requireProvider(query: string): Provider {
+  const provider = findProvider(query, db.getState().currentAgent) || findProvider(query);
+  if (!provider) throw new EngineError(`Unknown provider: ${query}`);
+  return provider;
+}
+
+function isLiveProvider(provider: Provider, agent: AgentId): boolean {
+  return matchLiveProvider(agent, getAdapter(agent).readStatus())?.id === provider.id;
 }
 
 function findProvider(query: string, agent?: AgentId): Provider | undefined {

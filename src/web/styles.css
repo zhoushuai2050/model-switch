@@ -368,6 +368,45 @@ button { cursor: pointer; }
 .tag.dim { opacity: 1; filter: grayscale(0.55) saturate(0.65); }
 .meta { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 4px; word-break: break-all; }
 .meta.models { color: var(--ink); font-family: var(--font); margin-top: 0; }
+
+.model-editor { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.model-editor-label { color: var(--muted); font-size: 12px; }
+.model-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.model-chip {
+  display: inline-flex; align-items: stretch; max-width: 100%;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--control-bg); overflow: hidden;
+}
+.model-chip.selected {
+  border-color: var(--primary-ring);
+  background: var(--primary-soft);
+}
+.model-chip-name, .model-chip-del { appearance: none; -webkit-appearance: none; }
+.model-chip-name {
+  border: 0; background: transparent; min-width: 0; max-width: 220px;
+  color: var(--ink); height: 26px; padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-family: var(--mono);
+  overflow: hidden;
+}
+.model-chip.selected .model-chip-name { color: var(--primary); font-weight: 700; }
+.model-chip-flag {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  font-family: var(--font); color: var(--primary);
+}
+.model-chip-del {
+  border: 0; border-left: 1px solid var(--line);
+  background: transparent; color: var(--faint);
+  width: 22px; height: 26px; padding: 0; flex: none;
+}
+.model-chip-del:hover { color: var(--red); background: var(--red-soft); }
+.model-add-row { display: flex; gap: 6px; align-items: center; }
+.model-add-input { flex: 1; min-width: 0; height: 32px; }
+.model-empty { color: var(--faint); font-size: 12px; padding: 2px 0; }
+.model-editor.compact .model-add-input { height: 28px; font-size: 12px; }
+.model-editor.compact .form-tip { display: none; }
+.card .model-editor { margin-top: 2px; }
+.dialog .model-editor { margin: 0 0 12px; }
 .badge {
   font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
   padding: 2px 6px; border-radius: 6px; background: var(--primary-soft); color: #93c5fd;

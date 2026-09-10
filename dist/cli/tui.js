@@ -324,7 +324,7 @@ function formatProvider(provider, live, selected, width) {
 function formatModel(model, live, selected, width) {
     const current = live?.model === model.modelId;
     const mark = selected ? '▌' : ' ';
-    const badge = current ? '  ON' : '';
+    const badge = current ? '  ON' : model.selected ? '  默认' : '';
     const plain = pad(trunc(`${mark} ${model.modelId}${badge}`, width), width);
     if (selected)
         return `\x1b[48;5;237;38;5;159m${plain}\x1b[0m`;

@@ -22,7 +22,7 @@ msw
 msw serve
 ```
 
-浏览器打开 http://127.0.0.1:8787 。顶部切 Agent 后，只显示这个 Agent 能用的供应商。卡片上可以启用、测通、查看/编辑；工具栏可以打开当前 Agent 的配置文件。
+浏览器打开 http://127.0.0.1:8787 。顶部切 Agent 后，只显示这个 Agent 能用的供应商。卡片上可以增删/选择模型、启用、测通、编辑；工具栏可以打开当前 Agent 的配置文件。
 
 ## 安装
 
@@ -104,6 +104,13 @@ msw provider add custom \
 - Claude Code 用 `--anthropic-url`（不要带末尾 `/v1`，Claude Code 会自己拼 `/v1/messages`；带了 msw 写入时也会去掉）
 - `--models` 填上游真实模型名，逗号分隔，第一项是默认模型
 - 同一家中转要给 Claude 和 Codex 用，请分别添加两次，不要写两个地址到同一条供应商
+- 之后可给供应商增删模型，并选择一个当前模型：测通和启用/启动都用这个当前模型
+
+```bash
+msw provider add-model local gpt-5.6-sol
+msw provider select-model local gpt-5.6-sol
+msw provider rm-model local grok-4.6
+```
 
 ## 切换
 
@@ -138,7 +145,7 @@ msw run --use local
 
 ## 测通
 
-按当前 Agent 的协议发一条短测试消息，确认地址、Key 和模型名是否可用。会消耗少量 Token。
+按当前 Agent 的协议、用该供应商当前选中的模型发一条短测试消息，确认地址、Key 和模型名是否可用。会消耗少量 Token。
 
 ```bash
 msw ping local
@@ -151,14 +158,18 @@ msw ping packy --agent claude
 
 管理台供应商卡片上点 **测通**，会逐步显示检查结果。编辑供应商时也可以测。
 
-## 查看 / 编辑
+## 编辑
 
-管理台供应商卡片点 **查看/编辑**，可改名称、API Key、OpenAI / Anthropic / Gemini 地址和模型列表，不必删了重加。点弹窗背景不会关闭。
+管理台供应商卡片上可以直接添加、删除、点选模型。点选后该模型成为测通和启用时的默认模型；如果这个供应商正在使用，会立刻写进当前 Agent。
 
-命令行目前只能改 Key：
+卡片点 **编辑**，可改名称、API Key 和地址，不必删了重加。点弹窗背景不会关闭。
+
+命令行：
 
 ```bash
 msw provider set-key local sk-new
+msw provider add-model local gpt-5.6-sol
+msw provider select-model local gpt-5.6-sol
 ```
 
 工具栏 **查看 Codex 配置**（随顶部选中的 Agent 变化）会直接打开该 Agent 的配置文件，例如：
@@ -177,8 +188,10 @@ msw                     # 终端切换台
 msw status              # 当前 Agent / 模型
 msw provider ls         # 列出供应商
 msw provider rm kimi    # 删除供应商
-msw use kimi            # 切供应商
-msw ping kimi           # 测通
+msw provider add-model kimi gpt-5.4
+msw provider select-model kimi gpt-5.4
+msw use kimi            # 切供应商（用当前选中的模型）
+msw ping kimi           # 测通（用当前选中的模型）
 msw serve               # 网页管理台
 msw help custom         # 自定义中转示例
 ```

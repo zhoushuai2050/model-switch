@@ -13,6 +13,7 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw provider rm <名称>      删除供应商
   msw provider add <preset> --key <api-key> --agent <claude|codex>
   msw provider add custom --name <名> --agent <claude|codex> --base-url <url> --key <key> --models <id>
+  msw provider add-model|rm-model|select-model <名> <模型>
   msw provider set-key|ping|presets
   msw mcp add --name <n> --command <cmd>
   msw mcp sync
@@ -83,7 +84,7 @@ Claude 的 /model 只认 sonnet / opus / haiku；msw 会把真实模型名映射
   --anthropic-url   Anthropic 兼容地址（Claude Code）
   --gemini-url      Gemini 地址
   --wire-api        现已固定为 responses（Codex 不再支持 chat）
-  --models          上游真实模型名，逗号分隔；第一项是默认模型
+  --models          上游真实模型名，逗号分隔；第一项是默认模型。之后可用 add-model / select-model 管理
 
 ────────────────────────────────
 配完
@@ -92,7 +93,10 @@ Claude 的 /model 只认 sonnet / opus / haiku；msw 会把真实模型名映射
   msw use packy
   msw run --use packy              # 只这次生效，不改全局
 
-追加模型（不用重新加渠道）：
-  在管理台编辑供应商，或:
-  msw provider add custom --name packy --key sk-xxx --agent codex --base-url https://relay.example.com/v1 --models gpt-5.4
+追加 / 选择模型（不用重新加渠道）：
+  msw provider add-model packy gpt-5.4
+  msw provider select-model packy gpt-5.4
+  msw provider rm-model packy gpt-old
+
+测通和启用都使用该供应商当前选中的模型。
 `;

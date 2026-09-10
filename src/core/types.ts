@@ -31,6 +31,8 @@ export interface ModelRow {
   modelId: string;
   alias?: string;
   agentHint?: AgentId | 'any';
+  sortOrder?: number;
+  selected?: boolean;
 }
 
 export interface McpServer {

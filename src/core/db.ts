@@ -64,6 +64,8 @@ function migrate(db: SqliteDatabase): void {
       model_id TEXT NOT NULL,
       alias TEXT,
       agent_hint TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      selected INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -93,6 +95,38 @@ function migrate(db: SqliteDatabase): void {
     DROP TABLE IF EXISTS profile_bindings;
     DROP TABLE IF EXISTS profiles;
   `);
+  ensureModelColumns(db);
+}
+
+function tableColumns(db: SqliteDatabase, table: string): string[] {
+  return db.prepare(`PRAGMA table_info(${table})`).all().map((row) => String(asRecord(row).name));
+}
+
+function ensureModelColumns(db: SqliteDatabase): void {
+  const cols = tableColumns(db, 'models');
+  if (!cols.includes('sort_order')) {
+    db.exec('ALTER TABLE models ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!cols.includes('selected')) {
+    db.exec('ALTER TABLE models ADD COLUMN selected INTEGER NOT NULL DEFAULT 0');
+  }
+  const providers = db.prepare('SELECT id FROM providers').all().map((row) => String(asRecord(row).id));
+  for (const providerId of providers) {
+    const models = db
+      .prepare('SELECT id, sort_order, selected FROM models WHERE provider_id = ? ORDER BY sort_order, model_id')
+      .all(providerId)
+      .map((row) => asRecord(row));
+    if (!models.length) continue;
+    const needOrder = models.every((item) => Number(item.sort_order || 0) === 0);
+    const hasSelected = models.some((item) => Number(item.selected) === 1);
+    models.forEach((item, index) => {
+      db.prepare('UPDATE models SET sort_order = ?, selected = ? WHERE id = ?').run(
+        needOrder ? index : Number(item.sort_order || 0),
+        Number(item.selected) === 1 || (!hasSelected && index === 0) ? 1 : 0,
+        String(item.id),
+      );
+    });
+  }
 }
 
 function asRecord(row: unknown): Row {
@@ -137,26 +171,52 @@ export function deleteProvider(id: string, db = getDb()): void {
 }
 
 export function listModels(db = getDb()): ModelRow[] {
-  return db.prepare('SELECT * FROM models ORDER BY model_id').all().map((row) => toModel(asRecord(row)));
+  return db.prepare('SELECT * FROM models ORDER BY provider_id, sort_order, model_id').all().map((row) => toModel(asRecord(row)));
 }
 
 export function modelsForProvider(providerId: string, db = getDb()): ModelRow[] {
   return db
-    .prepare('SELECT * FROM models WHERE provider_id = ? ORDER BY model_id')
+    .prepare('SELECT * FROM models WHERE provider_id = ? ORDER BY sort_order, model_id')
     .all(providerId)
     .map((row) => toModel(asRecord(row)));
 }
 
 export function upsertModel(model: ModelRow, db = getDb()): void {
   db.prepare(
-    `INSERT INTO models (id, provider_id, model_id, alias, agent_hint)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO models (id, provider_id, model_id, alias, agent_hint, sort_order, selected)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        provider_id = excluded.provider_id,
        model_id = excluded.model_id,
        alias = excluded.alias,
-       agent_hint = excluded.agent_hint`,
-  ).run(model.id, model.providerId, model.modelId, model.alias ?? null, model.agentHint ?? null);
+       agent_hint = excluded.agent_hint,
+       sort_order = excluded.sort_order,
+       selected = excluded.selected`,
+  ).run(
+    model.id,
+    model.providerId,
+    model.modelId,
+    model.alias ?? null,
+    model.agentHint ?? null,
+    model.sortOrder ?? 0,
+    model.selected ? 1 : 0,
+  );
+}
+
+export function nextModelSortOrder(providerId: string, db = getDb()): number {
+  const row = asRecord(db.prepare('SELECT MAX(sort_order) AS max_sort FROM models WHERE provider_id = ?').get(providerId) || {});
+  const max = Number(row.max_sort);
+  return Number.isFinite(max) ? max + 1 : 0;
+}
+
+export function setSelectedModel(providerId: string, modelRowId: string, db = getDb()): void {
+  db.prepare(
+    'UPDATE models SET selected = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE provider_id = ?',
+  ).run(modelRowId, providerId);
+}
+
+export function deleteModel(id: string, db = getDb()): void {
+  db.prepare('DELETE FROM models WHERE id = ?').run(id);
 }
 
 export function deleteModelsForProvider(providerId: string, db = getDb()): void {
@@ -288,6 +348,8 @@ function toModel(row: Row): ModelRow {
     modelId: String(row.model_id),
     alias: row.alias ? String(row.alias) : undefined,
     agentHint: row.agent_hint ? (row.agent_hint as ModelRow['agentHint']) : undefined,
+    sortOrder: Number(row.sort_order || 0),
+    selected: Number(row.selected) === 1,
   };
 }
 

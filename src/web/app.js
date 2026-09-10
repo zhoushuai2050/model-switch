@@ -85,6 +85,109 @@ function modelsOf(providerId) {
   return state.models.filter((item) => item.providerId === providerId);
 }
 
+function selectedModelOf(providerId) {
+  const models = modelsOf(providerId);
+  return models.find((item) => item.selected) || models[0];
+}
+
+function modelsFromEditor(editor) {
+  return [...(editor?.querySelectorAll('.model-chip-name[data-model]') || [])]
+    .map((item) => item.dataset.model)
+    .filter(Boolean);
+}
+
+function selectedFromEditor(editor) {
+  return editor?.querySelector('.model-chip.selected .model-chip-name')?.dataset.model
+    || modelsFromEditor(editor)[0]
+    || '';
+}
+
+function modelChipHtml(modelId, selected, providerId = '') {
+  return `<div class="model-chip ${selected ? 'selected' : ''}">
+    <button type="button" class="model-chip-name" data-model-select="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}">
+      ${escapeHtml(modelId)}${selected ? '<span class="model-chip-flag">当前</span>' : ''}
+    </button>
+    <button type="button" class="model-chip-del" data-model-delete="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="删除模型">×</button>
+  </div>`;
+}
+
+function setEditorModels(editor, models) {
+  if (!editor) return;
+  const providerId = editor.dataset.providerId || '';
+  const rows = models.map((item) => (typeof item === 'string' ? { modelId: item } : item));
+  const selected = rows.find((item) => item.selected)?.modelId || rows[0]?.modelId;
+  const mount = editor.querySelector('.model-chips');
+  if (!mount) return;
+  mount.innerHTML = rows.length
+    ? rows.map((item) => modelChipHtml(item.modelId, item.modelId === selected, providerId)).join('')
+    : '<div class="model-empty">还没有模型</div>';
+}
+
+function renderModelEditor(models, opts = {}) {
+  const providerId = opts.providerId || '';
+  const compact = Boolean(opts.compact);
+  const rows = models.map((item) => (typeof item === 'string' ? { modelId: item, selected: false } : { ...item }));
+  if (rows.length && !rows.some((item) => item.selected)) rows[0].selected = true;
+  return `<div class="model-editor ${compact ? 'compact' : ''}" data-provider-id="${escapeHtml(providerId)}">
+    ${compact ? '' : '<div class="model-editor-label">模型</div>'}
+    <div class="model-chips">${rows.length ? rows.map((item) => modelChipHtml(item.modelId, Boolean(item.selected), providerId)).join('') : '<div class="model-empty">还没有模型</div>'}</div>
+    <div class="model-add-row">
+      <input class="model-add-input" type="text" placeholder="添加模型，如 grok-4.6" autocomplete="off" />
+      <button class="btn sm" type="button" data-model-add="${escapeHtml(providerId)}">添加</button>
+    </div>
+    ${compact ? '' : '<p class="form-tip">点选一个作为测通和启用时的默认模型。</p>'}
+  </div>`;
+}
+
+function addDraftModel(editor, modelId) {
+  const id = String(modelId || '').trim();
+  if (!id) {
+    toast('请输入模型名', true);
+    return false;
+  }
+  const current = selectedFromEditor(editor);
+  const models = modelsFromEditor(editor).map((item) => ({ modelId: item, selected: item === current }));
+  if (models.some((item) => item.modelId === id)) {
+    toast(`已有模型 ${id}`, true);
+    return false;
+  }
+  models.push({ modelId: id, selected: models.length === 0 });
+  setEditorModels(editor, models);
+  return true;
+}
+
+function removeDraftModel(editor, modelId) {
+  const current = selectedFromEditor(editor);
+  const models = modelsFromEditor(editor)
+    .filter((item) => item !== modelId)
+    .map((item) => ({ modelId: item, selected: item === current }));
+  if (models.length && !models.some((item) => item.selected)) models[0].selected = true;
+  setEditorModels(editor, models);
+}
+
+function selectDraftModel(editor, modelId) {
+  setEditorModels(editor, modelsFromEditor(editor).map((item) => ({ modelId: item, selected: item === modelId })));
+}
+
+async function addModelFromEditor(editor) {
+  if (!editor) return;
+  const input = editor.querySelector('.model-add-input');
+  const value = String(input?.value || '').trim();
+  const providerId = editor.dataset.providerId;
+  if (providerId) {
+    if (!value) {
+      toast('请输入模型名', true);
+      return;
+    }
+    await run(async () => {
+      await api(`/api/providers/${encodeURIComponent(providerId)}/models`, { method: 'POST', body: { modelId: value } });
+      if (input) input.value = '';
+    }, `已添加 ${value}`);
+    return;
+  }
+  if (addDraftModel(editor, value) && input) input.value = '';
+}
+
 function isCurrentProvider(provider) {
   const live = agent();
   return Boolean(live?.currentProviderId && live.currentProviderId === provider.id);
@@ -161,6 +264,14 @@ async function refresh() {
   state.mcp = mcp;
   if (!APPS.some((app) => app.id === state.app)) state.app = status.state?.currentAgent || 'codex';
   render();
+  syncOpenModelEditor();
+}
+
+function syncOpenModelEditor() {
+  const editor = document.querySelector('#modal .model-editor');
+  const providerId = editor?.dataset.providerId;
+  if (!editor || !providerId) return;
+  setEditorModels(editor, modelsOf(providerId));
 }
 
 function renderSwitcher() {
@@ -217,7 +328,7 @@ function renderProviders() {
   }
   $('#view-providers').innerHTML = `<div class="cards">${list.map((provider) => {
     const current = isCurrentProvider(provider);
-    const models = modelsOf(provider.id).map((item) => item.modelId).join(', ') || '默认模型';
+    const models = modelsOf(provider.id);
     const protocol = agentProtocol(provider);
     const url = agentUrl(provider);
     const tags = configuredProtocols(provider).map((item) => {
@@ -236,11 +347,11 @@ function renderProviders() {
         </div>
       </div>
       <div class="card-body">
-        <div class="meta models">${escapeHtml(models)}</div>
+        ${renderModelEditor(models, { providerId: provider.id, compact: true })}
         <div class="meta url">${escapeHtml(protocol ? PROTOCOL_LABELS[protocol] : agentNeedLabel())} · ${escapeHtml(url || '未配置当前 Agent 地址')}</div>
       </div>
       <div class="card-actions">
-        <button class="btn sm" data-edit="${provider.id}" type="button">查看/编辑</button>
+        <button class="btn sm" data-edit="${provider.id}" type="button">编辑</button>
         <button class="btn sm" data-ping="${provider.id}" type="button">测通</button>
         <button class="btn sm danger" data-del="${provider.id}" type="button">删除</button>
         <button class="btn sm ${current ? 'success' : 'primary'}" data-use="${provider.id}" type="button">${current ? '使用中' : '启用'}</button>
@@ -302,7 +413,7 @@ async function openPingModal(providerId) {
   const provider = state.providers.find((item) => item.id === providerId);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>测通 ${escapeHtml(provider?.name || providerId)} · ${escapeHtml(appName())}</h2>
+    <h2>测通 ${escapeHtml(provider?.name || providerId)} · ${escapeHtml(appName())}${selectedModelOf(providerId)?.modelId ? ` · ${escapeHtml(selectedModelOf(providerId).modelId)}` : ''}</h2>
     <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">开始测试</div></div></div></div>
     <div class="dialog-actions">
       <button class="btn" type="button" id="btn-cancel">关闭</button>
@@ -386,7 +497,7 @@ function presetFieldValues(presetId) {
     openaiUrl: preset?.protocols?.openai?.baseUrl || '',
     anthropicUrl: preset?.protocols?.anthropic?.baseUrl || '',
     geminiUrl: preset?.protocols?.gemini?.baseUrl || '',
-    models: (preset?.models || []).map((item) => item.modelId).join(','),
+    models: (preset?.models || []).map((item, index) => ({ modelId: item.modelId, selected: index === 0 })),
   };
 }
 
@@ -413,7 +524,12 @@ function fillPresetFields(form, presetId, overwrite = true) {
   if (!form) return;
   const values = presetFieldValues(presetId);
   for (const [name, value] of Object.entries(values)) {
+    if (name === 'models') continue;
     markDefaultField(form.querySelector(`[name="${name}"]`), value, overwrite);
+  }
+  const editor = form.querySelector('.model-editor');
+  if (editor && (overwrite || !modelsFromEditor(editor).length)) {
+    setEditorModels(editor, values.models || []);
   }
 }
 
@@ -430,7 +546,7 @@ async function openProviderModal(providerId) {
   const editing = Boolean(provider);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>${editing ? `查看 / 编辑 ${escapeHtml(appName())} 供应商` : `添加 ${escapeHtml(appName())} 供应商`}</h2>
+    <h2>${editing ? `编辑 ${escapeHtml(appName())} 供应商` : `添加 ${escapeHtml(appName())} 供应商`}</h2>
     <form class="provider-form" id="${editing ? 'edit-provider' : 'add-provider'}" data-id="${editing ? escapeHtml(provider.id) : ''}">
       <div class="form-grid">
         ${editing ? `<label class="field">ID<input value="${escapeHtml(provider.id)}" disabled /></label>` : `<label class="field">类型
@@ -444,8 +560,8 @@ async function openProviderModal(providerId) {
           </span>
         </label>
         <label class="field">${escapeHtml(urlField.label)}<input name="${urlField.name}" value="${escapeHtml(protocolOf(provider, urlField.protocol))}" placeholder="${escapeHtml(urlField.placeholder)}" autocomplete="off" /></label>
-        <label class="field">模型<input name="models" value="${escapeHtml(models.map((item) => item.modelId).join(','))}" placeholder="gpt-5.6-sol,deepseek-v4-flash" autocomplete="off" /></label>
       </div>
+      ${renderModelEditor(models, { providerId: editing ? provider.id : '', compact: false })}
       ${editing ? '' : `<p class="form-tip">只创建给 ${escapeHtml(appName())} 用的供应商。灰色是预设默认值，你输入或改过的内容显示为纯黑色。</p>`}
       <div class="dialog-actions">
         ${editing ? `<button class="btn" type="button" data-ping="${escapeHtml(provider.id)}">测通</button>` : ''}
@@ -525,6 +641,40 @@ document.body.addEventListener('click', async (event) => {
     render();
     return;
   }
+  if (t.hasAttribute('data-model-add')) {
+    addModelFromEditor(t.closest('.model-editor')).catch((error) => toast(error.message || String(error), true));
+    return;
+  }
+  if (t.hasAttribute('data-model-delete')) {
+    const editor = t.closest('.model-editor');
+    const providerId = editor?.dataset.providerId;
+    const modelId = t.dataset.model;
+    if (providerId) {
+      if (!confirm(`删除模型 ${modelId}？`)) return;
+      run(() => api(`/api/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' }), `已删除 ${modelId}`)
+        .catch((error) => toast(error.message || String(error), true));
+    } else {
+      removeDraftModel(editor, modelId);
+    }
+    return;
+  }
+  if (t.hasAttribute('data-model-select')) {
+    const editor = t.closest('.model-editor');
+    const providerId = editor?.dataset.providerId;
+    const modelId = t.dataset.model;
+    if (!providerId) {
+      selectDraftModel(editor, modelId);
+      return;
+    }
+    run(async () => {
+      const result = await api(`/api/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/select`, {
+        method: 'POST',
+        body: { agent: state.app },
+      });
+      toast(result.applied ? `已切换到 ${modelId}` : `已选择 ${modelId}，测通和启用将使用该模型`);
+    }).catch((error) => toast(error.message || String(error), true));
+    return;
+  }
   if (t.id === 'btn-add' || t.id === 'btn-add-empty') {
     openProviderModal().catch((error) => toast(error.message || String(error), true));
     return;
@@ -580,6 +730,7 @@ document.body.addEventListener('submit', async (event) => {
       return;
     }
     if (form.id === 'add-provider' || form.id === 'edit-provider') {
+      const editor = form.querySelector('.model-editor');
       const body = {
         preset: data.preset === 'custom' ? undefined : data.preset,
         name: data.name || undefined,
@@ -588,15 +739,16 @@ document.body.addEventListener('submit', async (event) => {
         openaiUrl: data.openaiUrl || undefined,
         anthropicUrl: data.anthropicUrl || undefined,
         geminiUrl: data.geminiUrl || undefined,
-        models: String(data.models || '').split(',').map((item) => item.trim()).filter(Boolean),
       };
-      if (!body.models.length) delete body.models;
-      if (form.id === 'edit-provider') {
-        await api(`/api/providers/${encodeURIComponent(form.dataset.id)}`, { method: 'PUT', body });
-        toast('供应商已更新');
-      } else {
+      if (form.id === 'add-provider') {
+        body.models = modelsFromEditor(editor);
+        body.defaultModel = selectedFromEditor(editor) || undefined;
+        if (!body.models.length) delete body.models;
         await api('/api/providers', { method: 'POST', body });
         toast('供应商已添加');
+      } else {
+        await api(`/api/providers/${encodeURIComponent(form.dataset.id)}`, { method: 'PUT', body });
+        toast('供应商已更新');
       }
       closeModal();
     }
@@ -611,6 +763,14 @@ document.body.addEventListener('submit', async (event) => {
   } catch (error) {
     toast(error.message || String(error), true);
   }
+});
+
+document.body.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  const t = event.target;
+  if (!(t instanceof HTMLInputElement) || !t.classList.contains('model-add-input')) return;
+  event.preventDefault();
+  addModelFromEditor(t.closest('.model-editor')).catch((error) => toast(error.message || String(error), true));
 });
 
 $('#search').addEventListener('input', (event) => {
