@@ -4,7 +4,8 @@ import { atomicWrite, backupFiles, readJson, readText, writeJson } from '../core
 import { parseEnv, stringifyEnv } from '../core/envfile.ts';
 import { geminiHome } from '../core/paths.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
-import type { Adapter, LaunchSpec } from './types.ts';
+import { asRecord, asString, extractJson } from '../core/probe.ts';
+import type { Adapter, LaunchSpec, ProbeParseInput, ProbeParseResult, ProbeSpec } from './types.ts';
 import { findBinary } from './which.ts';
 
 function envPath(): string {
@@ -63,6 +64,31 @@ export const geminiAdapter: Adapter = {
       args: extraArgs,
       env: envFromProvider(payload.provider, payload.model),
     };
+  },
+  probeSpec(payload: ApplyPayload, prompt: string, isolatedHome: string): ProbeSpec {
+    const bin = findBinary(this.binaries) || 'gemini';
+    return {
+      command: bin,
+      args: [
+        '-p', prompt,
+        '--output-format', 'json',
+        '-m', payload.model,
+      ],
+      env: envFromProvider(payload.provider, payload.model),
+      pathEnv: { GEMINI_CONFIG_DIR: isolatedHome },
+    };
+  },
+  parseProbe(input: ProbeParseInput): ProbeParseResult {
+    const json = extractJson(input.stdout) ?? extractJson(input.stderr);
+    const root = asRecord(json);
+    if (root) {
+      const error = asRecord(root.error);
+      if (error) return { error: asString(error.message) || asString(root.error) || 'Gemini CLI 报错' };
+      const response = asString(root.response) || asString(root.result) || asString(root.text);
+      if (response) return { reply: response };
+    }
+    if (input.code === 0 && input.stdout.trim()) return { reply: input.stdout.trim() };
+    return { error: input.stderr.trim() || input.stdout.trim() || input.spawnError };
   },
   syncMcp(servers: McpServer[]) {
     const settings = readJson<Record<string, unknown>>(settingsPath()) || {};

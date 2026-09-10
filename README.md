@@ -117,7 +117,7 @@ msw provider rm-model local grok-4.6
 ```bash
 msw agent codex        # claude | codex | gemini | opencode
 msw use local          # 切到刚加的供应商
-msw ping local         # 可选，测通会消耗少量 Token
+msw ping local         # 可选，通过 Agent SDK 测通，会消耗少量 Token
 msw status
 ```
 
@@ -145,16 +145,19 @@ msw run --use local
 
 ## 测通
 
-按当前 Agent 的协议、用该供应商当前选中的模型发一条短测试消息，确认地址、Key 和模型名是否可用。会消耗少量 Token。
+按当前 Agent 启动其 SDK / 非交互模式，随机问一句平常的话（例如「1+1等于几？」），和你在 SDK 里手动打字一样。走的是真正启动 Agent 时的同一套配置映射（例如 Claude Code 只认 `sonnet` / `opus` / `haiku`，真实模型名通过 `ANTHROPIC_DEFAULT_*_MODEL` 注入），不会带「测通」字样，也不走专用探测接口。测通用非流式拿完整回复即可。会消耗少量 Token。
 
 ```bash
 msw ping local
 msw ping packy --agent claude
 ```
 
-- Codex / OpenCode 测 OpenAI 地址
-- Claude 测 Anthropic 地址
-- Gemini 测 Gemini 地址（没填则用 `--base-url`）
+- Codex：`codex exec`
+- Claude：`claude -p`（print / SDK 模式）
+- Gemini：`gemini -p`
+- OpenCode：`opencode run`
+
+测通会在临时目录写入隔离配置，不会改你正在用的 Agent 配置。需要本机已安装对应 Agent。
 
 管理台供应商卡片上点 **测通**，会逐步显示检查结果。编辑供应商时也可以测。
 

@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { backupFiles, readJson, writeJson } from '../core/fsutil.ts';
 import { claudeHome, claudeJsonPath } from '../core/paths.ts';
 import type { ApplyPayload, McpServer, Provider } from '../core/types.ts';
-import type { Adapter, LaunchSpec } from './types.ts';
+import { asRecord, asString, extractJson } from '../core/probe.ts';
+import type { Adapter, LaunchSpec, ProbeParseInput, ProbeParseResult, ProbeSpec } from './types.ts';
 import { findBinary } from './which.ts';
 
 type Settings = {
@@ -118,6 +119,35 @@ export const claudeAdapter: Adapter = {
       ? extraArgs
       : ['--model', alias, ...extraArgs];
     return { command: bin, args, env: cleaned };
+  },
+  probeSpec(payload: ApplyPayload, prompt: string, isolatedHome: string): ProbeSpec {
+    const bin = findBinary(this.binaries) || 'claude';
+    const env = envFromProvider(payload.provider, payload.model);
+    const alias = claudeAlias(payload.model);
+    return {
+      command: bin,
+      args: [
+        '-p',
+        '--output-format', 'json',
+        '--model', alias,
+        '--permission-prompts', 'none',
+        '--no-session-persistence',
+        prompt,
+      ],
+      env,
+      pathEnv: { CLAUDE_CONFIG_DIR: isolatedHome },
+    };
+  },
+  parseProbe(input: ProbeParseInput): ProbeParseResult {
+    const json = extractJson(input.stdout) ?? extractJson(input.stderr);
+    const root = asRecord(json);
+    if (root) {
+      const result = asString(root.result) || asString(root.error);
+      if (root.is_error === true) return { error: result || 'Claude Code SDK 报错' };
+      if (result) return { reply: result };
+    }
+    if (input.code === 0 && input.stdout.trim()) return { reply: input.stdout.trim() };
+    return { error: input.stderr.trim() || input.stdout.trim() || input.spawnError };
   },
   syncMcp(servers: McpServer[]) {
     const file = claudeJsonPath();
