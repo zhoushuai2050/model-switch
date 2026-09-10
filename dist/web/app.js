@@ -123,6 +123,21 @@ function agentNeedLabel(app = state.app) {
   return protocolsForApp(app).map((item) => PROTOCOL_LABELS[item]).join(' / ');
 }
 
+function agentUrlField(app = state.app) {
+  if (app === 'claude') {
+    return { name: 'anthropicUrl', protocol: 'anthropic', label: 'Anthropic 地址', placeholder: 'https://api.example.com' };
+  }
+  if (app === 'gemini') {
+    return { name: 'geminiUrl', protocol: 'gemini', label: 'Gemini 地址', placeholder: 'https://generativelanguage.googleapis.com/v1beta' };
+  }
+  return { name: 'openaiUrl', protocol: 'openai', label: 'OpenAI 地址', placeholder: 'https://api.example.com/v1' };
+}
+
+function presetsForApp(app = state.app) {
+  const needed = protocolsForApp(app);
+  return state.presets.filter((preset) => needed.some((item) => preset.protocols?.[item]?.baseUrl));
+}
+
 function protocolLine(provider) {
   return configuredProtocols(provider).map((item) => protocolUrl(provider, item)).join(' ') || '未配置地址';
 }
@@ -168,6 +183,11 @@ function renderStatus() {
     <span>${available} 个可用</span>`;
   const configButton = $('#btn-agent-config');
   if (configButton) configButton.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.7"/><path d="M7 8h10M7 12h7M7 16h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>查看 ${escapeHtml(appName())} 配置`;
+  const addBtn = $('#btn-add');
+  if (addBtn) {
+    const svg = addBtn.querySelector('svg')?.outerHTML || '';
+    addBtn.innerHTML = `${svg}添加 ${escapeHtml(appName())} 供应商`;
+  }
 }
 
 function renderProviders() {
@@ -185,15 +205,13 @@ function renderProviders() {
     return hay.includes(q);
   });
   if (!list.length) {
-    const empty = !state.providers.length
-      ? { title: '还没有供应商', detail: '添加一个预设或自定义中转。' }
-      : !scoped.length
-        ? { title: `当前 ${appName()} 没有可用供应商`, detail: `请添加带 ${agentNeedLabel()} 地址的供应商，或切换到其他 Agent。` }
-        : { title: '没有匹配的供应商', detail: '换个关键词，或清空搜索后再试。' };
+    const empty = !scoped.length && !q
+      ? { title: `还没有 ${appName()} 供应商`, detail: `添加一个只给 ${appName()} 用的预设或自定义中转。` }
+      : { title: '没有匹配的供应商', detail: '换个关键词，或清空搜索后再试。' };
     $('#view-providers').innerHTML = `<div class="empty">
       <h3>${empty.title}</h3>
       <p>${empty.detail}</p>
-      <button class="btn primary" id="btn-add-empty" type="button">添加供应商</button>
+      <button class="btn primary" id="btn-add-empty" type="button">添加 ${escapeHtml(appName())} 供应商</button>
     </div>`;
     return;
   }
@@ -400,7 +418,8 @@ function fillPresetFields(form, presetId, overwrite = true) {
 }
 
 async function openProviderModal(providerId) {
-  const presets = [{ id: 'custom', name: '自定义中转' }, ...state.presets];
+  const urlField = agentUrlField();
+  const presets = [{ id: 'custom', name: '自定义中转' }, ...presetsForApp()];
   let provider = null;
   let models = [];
   if (providerId) {
@@ -411,7 +430,7 @@ async function openProviderModal(providerId) {
   const editing = Boolean(provider);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog">
-    <h2>${editing ? '查看 / 编辑供应商' : '添加供应商'}</h2>
+    <h2>${editing ? `查看 / 编辑 ${escapeHtml(appName())} 供应商` : `添加 ${escapeHtml(appName())} 供应商`}</h2>
     <form class="provider-form" id="${editing ? 'edit-provider' : 'add-provider'}" data-id="${editing ? escapeHtml(provider.id) : ''}">
       <div class="form-grid">
         ${editing ? `<label class="field">ID<input value="${escapeHtml(provider.id)}" disabled /></label>` : `<label class="field">类型
@@ -424,12 +443,10 @@ async function openProviderModal(providerId) {
             <button class="btn sm" type="button" id="btn-toggle-key">显示</button>
           </span>
         </label>
-        <label class="field">OpenAI 地址<input name="openaiUrl" value="${escapeHtml(protocolOf(provider, 'openai'))}" placeholder="https://api.example.com/v1" autocomplete="off" /></label>
-        <label class="field">Anthropic 地址<input name="anthropicUrl" value="${escapeHtml(protocolOf(provider, 'anthropic'))}" placeholder="可选" autocomplete="off" /></label>
-        <label class="field">Gemini 地址<input name="geminiUrl" value="${escapeHtml(protocolOf(provider, 'gemini'))}" placeholder="可选" autocomplete="off" /></label>
+        <label class="field">${escapeHtml(urlField.label)}<input name="${urlField.name}" value="${escapeHtml(protocolOf(provider, urlField.protocol))}" placeholder="${escapeHtml(urlField.placeholder)}" autocomplete="off" /></label>
         <label class="field">模型<input name="models" value="${escapeHtml(models.map((item) => item.modelId).join(','))}" placeholder="gpt-5.6-sol,deepseek-v4-flash" autocomplete="off" /></label>
       </div>
-      ${editing ? '' : '<p class="form-tip">灰色是预设默认值，你输入或改过的内容显示为纯黑色。</p>'}
+      ${editing ? '' : `<p class="form-tip">只创建给 ${escapeHtml(appName())} 用的供应商。灰色是预设默认值，你输入或改过的内容显示为纯黑色。</p>`}
       <div class="dialog-actions">
         ${editing ? `<button class="btn" type="button" data-ping="${escapeHtml(provider.id)}">测通</button>` : ''}
         <button class="btn" type="button" id="btn-cancel">取消</button>
@@ -567,6 +584,7 @@ document.body.addEventListener('submit', async (event) => {
         preset: data.preset === 'custom' ? undefined : data.preset,
         name: data.name || undefined,
         apiKey: data.apiKey || undefined,
+        agent: state.app,
         openaiUrl: data.openaiUrl || undefined,
         anthropicUrl: data.anthropicUrl || undefined,
         geminiUrl: data.geminiUrl || undefined,

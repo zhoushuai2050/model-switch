@@ -59,6 +59,8 @@ Linux / macOS 完整可用。Windows 上用 `msw use` 改配置，然后新开�
 
 ## 加供应商
 
+供应商按 Agent 隔离：一次只创建 Claude 或 Codex，不再创建同时给多个 Agent 用的供应商。网页管理台顶部选中哪个 Agent，添加的就是那个 Agent 的供应商。
+
 看有哪些预设：
 
 ```bash
@@ -67,46 +69,41 @@ msw provider presets
 
 有 OpenAI、Anthropic、DeepSeek、Kimi、GLM、Qwen、SiliconFlow、OpenRouter、MiniMax、Groq。
 
-用预设：
+用预设（必须指定 Agent，或先 `msw agent claude`）：
 
 ```bash
-msw provider add kimi --key sk-xxx
+msw provider add kimi --key sk-xxx --agent claude
+msw provider add kimi --key sk-xxx --agent codex
 ```
 
-用中转站或本地接口（至少要有名字、Key、地址、模型）：
+这会生成两条独立供应商，名字可以相同。
+
+只给 Codex / OpenCode：
 
 ```bash
 msw provider add custom \
   --name local \
   --key sk-xxx \
+  --agent codex \
   --base-url http://127.0.0.1:8000/v1 \
   --models grok-4.6,gpt-5.6-sol
-```
-
-- Codex / OpenCode 用 `--base-url`（一般要带到 `/v1`）
-- Claude Code 另加 `--anthropic-url`（不要带末尾 `/v1`，Claude Code 会自己拼 `/v1/messages`；带了 msw 写入时也会去掉）
-- `--models` 填上游真实模型名，逗号分隔，第一项是默认模型
-
-同一家中转同时给 Codex 和 Claude：
-
-```bash
-msw provider add custom \
-  --name packy \
-  --key sk-xxx \
-  --base-url https://relay.example.com/v1 \
-  --anthropic-url https://relay.example.com \
-  --models gpt-5.6-sol,claude-sonnet-4-6
 ```
 
 只给 Claude：
 
 ```bash
 msw provider add custom \
-  --name cc-relay \
+  --name local \
   --key sk-xxx \
-  --anthropic-url https://relay.example.com \
-  --models claude-sonnet-4-6
+  --agent claude \
+  --anthropic-url https://api.lvyrix.com \
+  --models grok-4.6
 ```
+
+- Codex / OpenCode 用 `--base-url`（一般要带到 `/v1`）
+- Claude Code 用 `--anthropic-url`（不要带末尾 `/v1`，Claude Code 会自己拼 `/v1/messages`；带了 msw 写入时也会去掉）
+- `--models` 填上游真实模型名，逗号分隔，第一项是默认模型
+- 同一家中转要给 Claude 和 Codex 用，请分别添加两次，不要写两个地址到同一条供应商
 
 ## 切换
 

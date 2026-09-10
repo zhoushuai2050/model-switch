@@ -70,18 +70,77 @@ test('listProvidersForAgent filters by agent protocol like the web UI', () => {
     openaiUrl: 'https://b.example/v1',
     models: ['gpt-4.1'],
   });
-  engine.addProvider({
-    name: 'both',
-    apiKey: 'sk',
-    openaiUrl: 'https://c.example/v1',
-    anthropicUrl: 'https://c.example',
-    models: ['shared'],
-  });
-  assert.deepEqual(engine.listProvidersForAgent('claude').map((item) => item.name).sort(), ['both', 'claude-only']);
-  assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.name).sort(), ['both', 'codex-only']);
+  assert.deepEqual(engine.listProvidersForAgent('claude').map((item) => item.name).sort(), ['claude-only']);
+  assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.name).sort(), ['codex-only']);
   assert.deepEqual(engine.listProvidersForAgent('gemini').map((item) => item.name), []);
   const claudeModels = engine.getProvider(engine.listProvidersForAgent('claude').find((item) => item.name === 'claude-only')!.id).models.map((item) => item.modelId).sort();
   assert.deepEqual(claudeModels, ['claude-opus-4', 'claude-sonnet-4-6']);
+});
+
+test('addProvider isolates a preset to one agent instead of creating a multi-protocol provider', () => {
+  const engine = new Engine();
+  const claude = engine.addProvider({ preset: 'kimi', apiKey: 'sk-claude', agent: 'claude' });
+  const codex = engine.addProvider({ preset: 'kimi', apiKey: 'sk-codex', agent: 'codex' });
+  assert.ok(claude.protocols.anthropic?.baseUrl);
+  assert.equal(claude.protocols.openai, undefined);
+  assert.ok(codex.protocols.openai?.baseUrl);
+  assert.equal(codex.protocols.anthropic, undefined);
+  assert.notEqual(claude.id, codex.id);
+  assert.deepEqual(engine.listProvidersForAgent('claude').map((item) => item.id), [claude.id]);
+  assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.id), [codex.id]);
+  engine.setAgent('claude');
+  assert.equal(engine.use('kimi').providerId, claude.id);
+  engine.setAgent('codex');
+  assert.equal(engine.use('kimi').providerId, codex.id);
+});
+
+test('addProvider refuses to create a multi-agent provider without --agent', () => {
+  const engine = new Engine();
+  assert.throws(
+    () => engine.addProvider({
+      name: 'packy',
+      apiKey: 'sk',
+      openaiUrl: 'https://relay.example/v1',
+      anthropicUrl: 'https://relay.example',
+      models: ['shared'],
+    }),
+    /指定 --agent/,
+  );
+});
+
+test('addProvider maps a single URL onto the selected agent protocol', () => {
+  const engine = new Engine();
+  const provider = engine.addProvider({
+    name: 'lvyrix',
+    apiKey: 'sk',
+    openaiUrl: 'https://api.lvyrix.com/v1',
+    agent: 'claude',
+    models: ['grok-4.6'],
+  });
+  assert.equal(provider.protocols.anthropic?.baseUrl, 'https://api.lvyrix.com/v1');
+  assert.equal(provider.protocols.openai, undefined);
+});
+
+test('addProvider rejects an OpenAI-only preset for Claude', () => {
+  const engine = new Engine();
+  assert.throws(
+    () => engine.addProvider({ preset: 'openai', apiKey: 'sk', agent: 'claude' }),
+    /需要 Anthropic/,
+  );
+});
+
+test('addProvider with current agent keeps only that agent protocol', () => {
+  const engine = new Engine();
+  engine.setAgent('claude');
+  const provider = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk',
+    openaiUrl: 'https://relay.example/v1',
+    anthropicUrl: 'https://relay.example',
+    models: ['grok-4.6'],
+  });
+  assert.ok(provider.protocols.anthropic?.baseUrl);
+  assert.equal(provider.protocols.openai, undefined);
 });
 
 test('claude adapter writes anthropic env', () => {
@@ -89,6 +148,7 @@ test('claude adapter writes anthropic env', () => {
   const kimi = engine.addProvider({
     preset: 'kimi',
     apiKey: 'sk-kimi',
+    agent: 'claude',
   });
   assert.match(kimi.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   engine.use('claude:kimi');
@@ -180,7 +240,7 @@ name = "crs"
 `,
   );
   const engine = new Engine();
-  engine.addProvider({ preset: 'deepseek', apiKey: 'sk-ds' });
+  engine.addProvider({ preset: 'deepseek', apiKey: 'sk-ds', agent: 'codex' });
   engine.setAgent('codex');
   const spec = engine.launch({ target: 'deepseek' });
   assert.equal(spec.command.includes('codex') || spec.command === 'codex' || existsSync(spec.command) || spec.command.endsWith('codex'), true);
@@ -649,23 +709,29 @@ test('ping only tests the current agent protocol', async () => {
   if (!address || typeof address === 'string') throw new Error('no port');
   try {
     const engine = new Engine();
-    const created = engine.addProvider({
-      name: 'multi',
+    const codexProvider = engine.addProvider({
+      name: 'codex-p',
       apiKey: 'sk-x',
       openaiUrl: `http://127.0.0.1:${address.port}/v1`,
+      agent: 'codex',
+      models: ['gpt-test'],
+    });
+    const claudeProvider = engine.addProvider({
+      name: 'claude-p',
+      apiKey: 'sk-x',
       anthropicUrl: `http://127.0.0.1:${address.port}`,
-      geminiUrl: `http://127.0.0.1:${address.port}/v1beta`,
+      agent: 'claude',
       models: ['gpt-test'],
     });
 
     hits.length = 0;
-    const codex = await engine.ping(created.id, 'codex');
+    const codex = await engine.ping(codexProvider.id, 'codex');
     assert.equal(codex.ok, true);
     assert.ok(codex.steps.some((step) => step.id === 'openai-responses' && step.status === 'ok'));
     assert.ok(!codex.steps.some((step) => step.id === 'anthropic-messages' || step.id === 'gemini-generate'));
 
     hits.length = 0;
-    const claude = await engine.ping(created.id, 'claude');
+    const claude = await engine.ping(claudeProvider.id, 'claude');
     assert.equal(claude.ok, true);
     assert.ok(claude.steps.some((step) => step.id === 'anthropic-messages' && step.status === 'ok'));
     assert.ok(!claude.steps.some((step) => step.id === 'openai-responses' || step.id === 'openai-chat' || step.id === 'gemini-generate'));

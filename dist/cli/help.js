@@ -11,8 +11,8 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw run [agent] [--use x] [-- extra]
   msw provider ls             显示所有供应商
   msw provider rm <名称>      删除供应商
-  msw provider add <preset> --key <api-key>
-  msw provider add custom --name <名> --base-url <url> --key <key> --models <id>
+  msw provider add <preset> --key <api-key> --agent <claude|codex>
+  msw provider add custom --name <名> --agent <claude|codex> --base-url <url> --key <key> --models <id>
   msw provider set-key|ping|presets
   msw mcp add --name <n> --command <cmd>
   msw mcp sync
@@ -38,12 +38,16 @@ export const HELP_CUSTOM = `完全自定义中转
 把中转站配成一个 Provider，然后 msw use <名字> 切换。
 至少要有：名字、Key、地址、模型。
 
+供应商按 Agent 隔离：一次只创建 Claude 或 Codex，不再把两个地址写进同一条供应商。
+同一家中转要两边用，就分别加两次。
+
 ────────────────────────────────
 只给 Codex 用
 ────────────────────────────────
   msw provider add custom \\
     --name local \\
     --key sk-xxx \\
+    --agent codex \\
     --base-url http://127.0.0.1:8000/v1 \\
     --wire-api responses \\
     --models grok-4.6
@@ -55,43 +59,29 @@ Codex 新版本只认 wire_api = responses，chat 会在切换时自动改掉。
 密钥写在该供应商自己的 [model_providers] 段里（和 OpenCode 一样），不改全局 auth.json。
 
 ────────────────────────────────
-同一家中转给 Codex + Claude
+只给 Claude Code
 ────────────────────────────────
   msw provider add custom \\
-    --name packy \\
+    --name local \\
     --key sk-xxx \\
-    --base-url https://relay.example.com/v1 \\
+    --agent claude \\
     --anthropic-url https://relay.example.com \\
-    --wire-api responses \\
-    --models claude-sonnet-4-6,gpt-4.1
+    --models grok-4.6
 
-  msw use packy
-  msw use claude:packy
-  msw use codex:gpt-4.1
+  msw use claude:local
 
-Codex 看 --base-url，Claude Code 看 --anthropic-url。
 Claude 地址按中转文档里的 ANTHROPIC_BASE_URL 填，不要带末尾 /v1（Claude Code 会再拼 /v1/messages）。
 Claude 的 /model 只认 sonnet / opus / haiku；msw 会把真实模型名映射到这些别名。
 
 ────────────────────────────────
-只给 Claude Code
-────────────────────────────────
-  msw provider add custom \\
-    --name cc-relay \\
-    --key sk-xxx \\
-    --anthropic-url https://relay.example.com \\
-    --models claude-sonnet-4-6
-
-  msw use claude:cc-relay
-
-────────────────────────────────
 常用参数
 ────────────────────────────────
-  --name            名字，同时当 id，之后 msw use <name>
+  --agent           claude | codex | gemini | opencode；不填则用当前 Agent
+  --name            名字，之后 msw use <name>
   --key             API Key
   --base-url        OpenAI 兼容地址（Codex / OpenCode）
   --anthropic-url   Anthropic 兼容地址（Claude Code）
-  --gemini-url      Gemini 地址；不填则 Gemini 会用 --base-url
+  --gemini-url      Gemini 地址
   --wire-api        现已固定为 responses（Codex 不再支持 chat）
   --models          上游真实模型名，逗号分隔；第一项是默认模型
 
@@ -104,5 +94,5 @@ Claude 的 /model 只认 sonnet / opus / haiku；msw 会把真实模型名映射
 
 追加模型（不用重新加渠道）：
   在管理台编辑供应商，或:
-  msw provider add custom --name packy --key sk-xxx --base-url https://relay.example.com/v1 --models claude-sonnet-4-6,gpt-5.4
+  msw provider add custom --name packy --key sk-xxx --agent codex --base-url https://relay.example.com/v1 --models gpt-5.4
 `;

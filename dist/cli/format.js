@@ -33,7 +33,7 @@ const PROTOCOL_LABELS = {
 };
 export function printProviders(providers, models = []) {
     if (!providers.length) {
-        console.log('还没有供应商。添加: msw provider add kimi --key sk-...');
+        console.log('还没有供应商。添加: msw provider add kimi --key sk-... --agent claude');
         return;
     }
     const nameCount = new Map();

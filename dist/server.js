@@ -88,6 +88,7 @@ async function api(req, res, url) {
             anthropicUrl: body.anthropicUrl ? String(body.anthropicUrl) : undefined,
             geminiUrl: body.geminiUrl ? String(body.geminiUrl) : undefined,
             models: Array.isArray(body.models) ? body.models.map(String) : undefined,
+            agent: body.agent ? String(body.agent) : undefined,
         });
         return send(res, 200, provider);
     }

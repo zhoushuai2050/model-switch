@@ -74,24 +74,13 @@ export class Engine {
         // Provider IDs are storage identifiers. Keep the human-readable name for
         // CLI/UI lookup, but never derive the ID from it.
         const id = randomUUID();
-        const protocols = preset ? { ...preset.protocols } : {};
-        if (input.openaiUrl) {
-            protocols.openai = {
-                baseUrl: input.openaiUrl,
-                wireApi: input.wireApi || protocols.openai?.wireApi || 'responses',
-                authMode: protocols.openai?.authMode || 'openai_auth',
-            };
-        }
-        if (input.anthropicUrl) {
-            protocols.anthropic = {
-                baseUrl: input.anthropicUrl,
-                authMode: protocols.anthropic?.authMode || 'auth_token',
-            };
-        }
-        if (input.geminiUrl) {
-            protocols.gemini = { baseUrl: input.geminiUrl };
-        }
+        const agent = resolveProviderAgent(input.agent);
+        const protocols = isolatedProtocols(input, preset);
         if (!Object.keys(protocols).length) {
+            if (agent) {
+                const need = protocolsForAgent(agent).map(protocolLabel).join('/');
+                throw new EngineError(`当前 ${agent} 需要 ${need} 地址。请填写该 Agent 的地址，或换一个支持 ${agent} 的预设`);
+            }
             throw new EngineError('Provider needs at least one protocol URL or a preset');
         }
         const provider = {
@@ -241,11 +230,10 @@ export class Engine {
         return this.applyModel(model, agent);
     }
     applyProvider(providerId, agentId, scope = 'global') {
-        const provider = db.getProvider(providerId) ||
-            db.listProviders().find((item) => item.name.toLowerCase() === providerId.toLowerCase());
+        const agent = requireAgent(agentId || db.getState().currentAgent);
+        const provider = findProvider(providerId, agent);
         if (!provider)
             throw new EngineError(`Unknown provider: ${providerId}`);
-        const agent = requireAgent(agentId || db.getState().currentAgent);
         const model = defaultModelFor(provider.id, agent);
         const result = emptyResult(scope);
         result.providerId = provider.id;
@@ -338,7 +326,7 @@ export class Engine {
         const requestedAgent = agentId || db.getState().currentAgent;
         const agent = requestedAgent && isAgentId(requestedAgent) ? requestedAgent : undefined;
         const provider = providerId
-            ? db.getProvider(providerId) || db.listProviders().find((item) => item.name.toLowerCase() === providerId.toLowerCase())
+            ? findProvider(providerId, agent)
             : payloadForAgent(requireAgent(requestedAgent)).provider;
         if (!provider) {
             const detail = '找不到供应商';
@@ -545,13 +533,32 @@ function defaultModelFor(providerId, agent) {
     const live = getAdapter(agent).readStatus().model;
     return live || 'default';
 }
+function findProvider(query, agent) {
+    const exact = db.getProvider(query);
+    if (exact)
+        return exact;
+    const named = db.listProviders().filter((item) => item.name.toLowerCase() === query.toLowerCase());
+    if (!named.length)
+        return undefined;
+    if (agent) {
+        const matching = named.filter((item) => providerSupportsAgent(item, agent));
+        if (matching.length)
+            return matching[0];
+    }
+    return named[0];
+}
 function findModel(query, agent) {
     const needle = query.toLowerCase();
     const models = db.listModels();
-    return (models.find((model) => model.id.toLowerCase() === needle) ||
-        models.find((model) => model.alias?.toLowerCase() === needle && (!model.agentHint || model.agentHint === 'any' || model.agentHint === agent)) ||
-        models.find((model) => model.modelId.toLowerCase() === needle) ||
-        models.find((model) => model.modelId.toLowerCase().includes(needle) || model.alias?.toLowerCase().includes(needle)));
+    const compatible = models.filter((model) => {
+        const provider = db.getProvider(model.providerId);
+        return provider ? providerSupportsAgent(provider, agent) : false;
+    });
+    const search = (list) => list.find((model) => model.id.toLowerCase() === needle) ||
+        list.find((model) => model.alias?.toLowerCase() === needle && (!model.agentHint || model.agentHint === 'any' || model.agentHint === agent)) ||
+        list.find((model) => model.modelId.toLowerCase() === needle) ||
+        list.find((model) => model.modelId.toLowerCase().includes(needle) || model.alias?.toLowerCase().includes(needle));
+    return search(compatible) || search(models);
 }
 function parseTarget(target, fallbackAgent) {
     let agent;
@@ -568,7 +575,7 @@ function parseTarget(target, fallbackAgent) {
         return { kind: 'provider', id: query.slice(9), agent };
     if (query.startsWith('model:'))
         return { kind: 'model', id: query.slice(6), agent };
-    const provider = db.getProvider(query) || db.listProviders().find((item) => item.name.toLowerCase() === query.toLowerCase());
+    const provider = findProvider(query, agent || fallbackAgent);
     if (provider)
         return { kind: 'provider', id: provider.id, agent: agent || fallbackAgent };
     return { kind: 'model', id: query, agent: agent || fallbackAgent };
@@ -610,6 +617,65 @@ export function protocolsForAgent(agent) {
     if (agent === 'gemini')
         return ['gemini'];
     return ['openai', 'anthropic', 'gemini'];
+}
+function resolveProviderAgent(agent) {
+    if (agent && isAgentId(agent))
+        return agent;
+    const current = db.getState().currentAgent;
+    return current && isAgentId(current) ? current : undefined;
+}
+function protocolFromUrl(protocol, baseUrl, input, existing) {
+    if (protocol === 'openai') {
+        return {
+            baseUrl,
+            wireApi: input.wireApi || existing?.wireApi || 'responses',
+            authMode: existing?.authMode || 'openai_auth',
+        };
+    }
+    if (protocol === 'anthropic') {
+        return {
+            baseUrl,
+            authMode: existing?.authMode || 'auth_token',
+        };
+    }
+    return { baseUrl };
+}
+function isolatedProtocols(input, preset) {
+    const agent = resolveProviderAgent(input.agent);
+    const merged = preset ? { ...preset.protocols } : {};
+    if (input.openaiUrl) {
+        merged.openai = protocolFromUrl('openai', input.openaiUrl, input, merged.openai);
+    }
+    if (input.anthropicUrl) {
+        merged.anthropic = protocolFromUrl('anthropic', input.anthropicUrl, input, merged.anthropic);
+    }
+    if (input.geminiUrl) {
+        merged.gemini = protocolFromUrl('gemini', input.geminiUrl, input, merged.gemini);
+    }
+    const present = ['openai', 'anthropic', 'gemini'].filter((item) => merged[item]?.baseUrl);
+    if (agent) {
+        const wanted = protocolsForAgent(agent);
+        const next = {};
+        for (const protocol of wanted) {
+            if (merged[protocol]?.baseUrl)
+                next[protocol] = merged[protocol];
+        }
+        if (!Object.keys(next).length) {
+            const fallback = input.anthropicUrl || input.openaiUrl || input.geminiUrl;
+            if (fallback) {
+                const protocol = wanted[0];
+                next[protocol] = protocolFromUrl(protocol, fallback, input, merged[protocol]);
+            }
+        }
+        return next;
+    }
+    if (present.length > 1) {
+        throw new EngineError('添加供应商请指定 --agent claude 或 --agent codex，不再创建同时给多个 Agent 用的供应商');
+    }
+    const next = {};
+    for (const protocol of present)
+        next[protocol] = merged[protocol];
+    return next;
 }
 export function providerSupportsAgent(provider, agent) {
     return protocolsForAgent(agent).some((item) => Boolean(provider.protocols[item]?.baseUrl));

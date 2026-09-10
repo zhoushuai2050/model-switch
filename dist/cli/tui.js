@@ -187,7 +187,7 @@ export async function runTui() {
                     }
                     else if (!provider) {
                         const need = protocolsForAgent(agent.id).map(protocolLabel).join(' / ');
-                        toast(`当前 ${agent.name} 没有可用供应商，请添加带 ${need} 地址的供应商`, false);
+                        toast(`当前 ${agent.name} 没有可用供应商，请添加只给 ${agent.name} 用的供应商`, false);
                     }
                     else if (col === 1 && model) {
                         const result = engine.setModel(model.id, { agent: agent.id });
@@ -251,7 +251,7 @@ function buildScreen(opts) {
             : i === 1
                 ? t.muted(`  没有适合 ${agent?.name || '当前 Agent'} 的供应商`)
                 : i === 2
-                    ? t.faint(`  添加带 ${need} 地址的供应商`)
+                    ? t.faint(`  添加 ${agent?.name || "当前 Agent"} 供应商`)
                     : '';
         const modelRow = opts.models.length
             ? (rightView.items[i]

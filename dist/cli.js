@@ -184,8 +184,10 @@ async function providerCommand() {
             geminiUrl: flag(args, 'gemini-url') || undefined,
             wireApi: flag(args, 'wire-api') || undefined,
             models: flagList(flag(args, 'models')).length ? flagList(flag(args, 'models')) : undefined,
+            agent: flag(args, 'agent') || undefined,
         });
-        console.log(`added provider ${provider.id}`);
+        const protocols = Object.keys(provider.protocols).join(', ') || 'none';
+        console.log(`added provider ${provider.name}  ${provider.id}  (${protocols})`);
         return;
     }
     if (sub === 'rm' || sub === 'delete' || sub === 'remove') {
@@ -258,5 +260,5 @@ function doctor() {
         console.log(`${agent.id.padEnd(9)} ${bin}  ${cfg}  ${agent.model || ''}`);
     }
     if (!engine.listProviders().length)
-        console.log(color.dim('hint: msw provider add kimi --key sk-...'));
+        console.log(color.dim('hint: msw provider add kimi --key sk-... --agent claude'));
 }
