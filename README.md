@@ -13,6 +13,8 @@
 ```bash
 msw
 ```
+<img width="1419" height="598" alt="image" src="https://github.com/user-attachments/assets/f4e1955b-9a45-4857-8260-f27fbb3ef705" />
+
 
 顶部切 Agent，左侧选供应商、右侧选模型，Enter 启用，`r` 启动 Agent，`q` 退出。
 
