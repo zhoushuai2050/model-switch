@@ -23,6 +23,7 @@ msw
 ```bash
 msw serve
 ```
+<img width="1906" height="759" alt="image" src="https://github.com/user-attachments/assets/ddb6be27-9952-407b-9cd5-85568cd1006e" />
 
 浏览器打开 http://127.0.0.1:8787 。顶部切 Agent 后，只显示这个 Agent 能用的供应商。卡片上可以点选模型、启用、测通、编辑；添加模型会弹出窗口。左下角可切换主题和中文 / English。工具栏可以打开当前 Agent 的配置文件。
 
