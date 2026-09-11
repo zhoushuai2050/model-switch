@@ -41,12 +41,14 @@ const state = {
   models: [],
   mcp: [],
   install: null,
+  installs: {},
   installing: false,
   theme: localStorage.getItem('msw-theme') || 'midnight',
   lang: detectLang(),
 };
 
 let installReq = 0;
+const promptedUpdate = new Set();
 
 setLang(state.lang, false);
 
@@ -120,13 +122,13 @@ async function api(path, opts = {}) {
   return data;
 }
 
-function toast(message, err = false) {
+function toast(message, err = false, ms = 2400) {
   const el = $('#toast');
   el.textContent = message;
   el.classList.toggle('err', err);
   el.classList.remove('hidden');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add('hidden'), 2400);
+  toast._t = setTimeout(() => el.classList.add('hidden'), ms);
 }
 
 function agent() {
@@ -155,12 +157,17 @@ function selectedFromEditor(editor) {
 }
 
 function modelChipHtml(modelId, selected, providerId = '') {
+  const title = selected ? t('model.current') : t('model.setCurrent');
   return `<div class="model-chip ${selected ? 'selected' : ''}">
-    <button type="button" class="model-chip-name" data-model-select="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${escapeHtml(modelId)}">
-      ${escapeHtml(modelId)}${selected ? `<span class="model-chip-flag">${t('badge.current')}</span>` : ''}
+    <button type="button" class="model-chip-name" data-model-select="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${escapeHtml(title)}: ${escapeHtml(modelId)}">
+      ${escapeHtml(modelId)}
     </button>
     <button type="button" class="model-chip-del" data-model-delete="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${t('model.deleteTitle')}">×</button>
   </div>`;
+}
+
+function displayUrl(url) {
+  return String(url || '').replace(/^https:\/\//, '').replace(/\/$/, '');
 }
 
 function modelAddButton(providerId = '', compact = false) {
@@ -244,6 +251,7 @@ function configuredProtocols(provider) {
 }
 
 function supportsAgent(provider, app = state.app) {
+  if (provider?.agent) return provider.agent === app;
   return protocolsForApp(app).some((item) => protocolUrl(provider, item));
 }
 
@@ -305,7 +313,9 @@ async function refresh() {
   state.models = models;
   state.mcp = mcp;
   if (!APPS.some((app) => app.id === state.app)) state.app = status.state?.currentAgent || 'codex';
-  if (state.install && state.install.id !== state.app) state.install = null;
+  if (state.install && state.install.id !== state.app) {
+    state.install = state.installs[state.app] || null;
+  }
   render();
   syncOpenModelEditor();
   loadInstallInfo();
@@ -321,10 +331,18 @@ function syncOpenModelEditor() {
 function renderSwitcher() {
   $('#app-switcher').innerHTML = APPS.map((app) => {
     const live = state.status?.agents?.find((item) => item.id === app.id);
-    const extra = live?.installed ? '' : t('status.notInstalled');
-    const cls = [state.app === app.id ? 'active' : '', live && !live.installed ? 'missing' : ''].filter(Boolean).join(' ');
+    const info = installInfoFor(app.id);
+    const outdated = info?.action === 'update';
+    const extra = live?.installed
+      ? (outdated ? t('status.updateAvailable') : '')
+      : t('status.notInstalled');
+    const cls = [
+      state.app === app.id ? 'active' : '',
+      live && !live.installed ? 'missing' : '',
+      outdated ? 'outdated' : '',
+    ].filter(Boolean).join(' ');
     return `<button type="button" data-app="${app.id}" class="${cls}" title="${app.name}${extra ? ` (${extra})` : ''}">
-      <span class="glyph ${app.id}">${app.name.slice(0, 1)}</span>${app.name}
+      <span class="glyph ${app.id}">${app.name.slice(0, 1)}</span>${app.name}${outdated ? `<span class="switcher-note">${t('status.updateAvailable')}</span>` : ''}
     </button>`;
   }).join('');
 }
@@ -339,6 +357,7 @@ function renderStatus() {
     <span>${live?.model || t('status.unconfigured')}</span>
     <span>${live?.providerLabel || live?.bin || (live?.installed ? t('status.installed') : t('status.notInstalled'))}</span>
     ${info?.version ? `<span>${escapeHtml(info.version)}</span>` : ''}
+    ${info?.action === 'update' ? `<span class="badge warn">${t('status.updateAvailable')}</span>` : ''}
     <span>${t('status.available', { n: available })}</span>`;
   const configLabel = $('#btn-config-label');
   if (configLabel) configLabel.textContent = t('nav.viewConfigApp', { app: appName() });
@@ -347,15 +366,32 @@ function renderStatus() {
   const addLabel = $('#btn-add-label');
   if (addLabel) addLabel.textContent = t('nav.addProviderApp', { app: appName() });
   renderInstallAction();
+  maybePromptUpdate(info);
+}
+
+function installInfoFor(id = state.app) {
+  if (state.installs[id]) return state.installs[id];
+  if (state.install && state.install.id === id) return state.install;
+  if (id !== state.app) return null;
+  const live = agent();
+  if (live && !live.installed) {
+    return { id, name: live.name || appName(id), installed: false, action: 'install' };
+  }
+  return null;
 }
 
 function installInfo() {
-  if (state.install && state.install.id === state.app) return state.install;
-  const live = agent();
-  if (live && !live.installed) {
-    return { id: state.app, name: live.name || appName(), installed: false, action: 'install' };
-  }
-  return null;
+  return installInfoFor(state.app);
+}
+
+function maybePromptUpdate(info) {
+  if (!info || info.action !== 'update' || promptedUpdate.has(info.id)) return;
+  promptedUpdate.add(info.id);
+  toast(t('agent.updateHint', {
+    app: info.name || appName(info.id),
+    version: info.version || '?',
+    latest: info.latest || '?',
+  }), false, 4200);
 }
 
 function installButtonHtml(info) {
@@ -404,16 +440,24 @@ function renderInstallAction() {
 
 async function loadInstallInfo() {
   const req = ++installReq;
-  const app = state.app;
   try {
-    const info = await api(`/api/agents/${encodeURIComponent(app)}/install`);
-    if (req !== installReq || state.app !== app) return;
-    state.install = info;
-    renderStatus();
+    const list = await api('/api/agents/install');
+    if (req !== installReq) return;
+    state.installs = Object.fromEntries((list || []).map((item) => [item.id, item]));
+    state.install = state.installs[state.app] || null;
+    render();
   } catch (error) {
-    if (req !== installReq || state.app !== app) return;
-    if (!agent()?.installed) return;
-    toast(error.message || String(error), true);
+    if (req !== installReq) return;
+    try {
+      const info = await api(`/api/agents/${encodeURIComponent(state.app)}/install`);
+      if (req !== installReq) return;
+      state.install = info;
+      state.installs = { ...state.installs, [info.id]: info };
+      render();
+    } catch {
+      if (!agent()?.installed) return;
+      toast(error.message || String(error), true);
+    }
   }
 }
 
@@ -478,15 +522,10 @@ async function openInstallModal() {
 
 function renderCardModels(provider) {
   const models = modelsOf(provider.id);
-  const current = models.find((item) => item.selected) || models[0];
   const chips = models.length
     ? models.map((item) => modelChipHtml(item.modelId, Boolean(item.selected), provider.id)).join('')
     : `<div class="model-empty">${t('model.none')}</div>`;
   return `<div class="card-models">
-    <div class="current-model">
-      <span class="current-model-label">${t('model.current')}</span>
-      <strong class="current-model-name">${current ? escapeHtml(current.modelId) : t('model.none')}</strong>
-    </div>
     <div class="model-chips">${chips}${modelAddButton(provider.id, true)}</div>
   </div>`;
 }
@@ -520,27 +559,19 @@ function renderProviders() {
     const current = isCurrentProvider(provider);
     const protocol = agentProtocol(provider);
     const url = agentUrl(provider);
-    const tags = configuredProtocols(provider).map((item) => {
-      const active = protocolsForApp().includes(item);
-      return `<span class="tag ${item}${active ? '' : ' dim'}">${PROTOCOL_LABELS[item]}</span>`;
-    }).join('');
-    return `<article class="card ${current ? 'current' : ''}">
+    const urlText = url ? displayUrl(url) : t('card.noAddress');
+    return `<article class="card ${current ? 'current' : ''}"${current ? ' aria-current="true"' : ''}>
       <div class="card-head">
         <div class="icon-box ${protocol || ''}">${initial(provider.name)}</div>
         <div class="card-title">
           <h3>
             <span class="card-name">${escapeHtml(provider.name)}</span>
-            ${current ? `<span class="badge">${t('badge.current')}</span>` : ''}
             ${provider.apiKey ? '' : `<span class="badge warn">${t('badge.noKey')}</span>`}
           </h3>
-          <div class="card-sub">
-            <div class="tags">${tags}</div>
-            ${provider.apiKey ? `<span class="key-pill" title="${t('badge.hasKey')}">KEY</span>` : ''}
-          </div>
+          <div class="card-url ${url ? '' : 'missing'}" title="${escapeHtml(url || t('card.noAddress'))}">${escapeHtml(urlText)}</div>
         </div>
       </div>
       ${renderCardModels(provider)}
-      <div class="meta url" title="${escapeHtml(url || '')}">${escapeHtml(protocol ? PROTOCOL_LABELS[protocol] : agentNeedLabel())} · ${escapeHtml(url || t('card.noUrl'))}</div>
       <div class="card-actions">
         <button class="btn sm ghost" data-edit="${provider.id}" type="button">${t('action.edit')}</button>
         <button class="btn sm ghost" data-ping="${provider.id}" type="button">${t('action.ping')}</button>

@@ -87,7 +87,7 @@ test('deleteProvider requires id when names collide', () => {
   assert.equal(engine.listProviders().map((item) => item.id).join(), second.id);
 });
 
-test('listProvidersForAgent filters by agent protocol like the web UI', () => {
+test('listProvidersForAgent isolates providers by agent, not just protocol', () => {
   const engine = new Engine();
   engine.addProvider({
     name: 'claude-only',
@@ -100,13 +100,53 @@ test('listProvidersForAgent filters by agent protocol like the web UI', () => {
     apiKey: 'sk',
     openaiUrl: 'https://b.example/v1',
     models: ['gpt-4.1'],
+    agent: 'codex',
   });
   assert.deepEqual(engine.listProvidersForAgent('claude').map((item) => item.name).sort(), ['claude-only']);
   assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.name).sort(), ['codex-only']);
-  assert.deepEqual(engine.listProvidersForAgent('grok-build').map((item) => item.name).sort(), ['codex-only']);
+  assert.deepEqual(engine.listProvidersForAgent('grok-build').map((item) => item.name), []);
+  assert.deepEqual(engine.listProvidersForAgent('opencode').map((item) => item.name), []);
   assert.deepEqual(engine.listProvidersForAgent('gemini').map((item) => item.name), []);
   const claudeModels = engine.getProvider(engine.listProvidersForAgent('claude').find((item) => item.name === 'claude-only')!.id).models.map((item) => item.modelId).sort();
   assert.deepEqual(claudeModels, ['claude-opus-4', 'claude-sonnet-4-6']);
+});
+
+test('openai providers for Codex, Grok, and OpenCode stay independent', () => {
+  const engine = new Engine();
+  const codex = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-codex',
+    openaiUrl: 'https://a.example/v1',
+    models: ['gpt-codex'],
+    agent: 'codex',
+  });
+  const grok = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-grok',
+    openaiUrl: 'https://b.example/v1',
+    models: ['grok-4.6'],
+    agent: 'grok-build',
+  });
+  const opencode = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-oc',
+    openaiUrl: 'https://c.example/v1',
+    models: ['gpt-oc'],
+    agent: 'opencode',
+  });
+  assert.equal(codex.agent, 'codex');
+  assert.equal(grok.agent, 'grok-build');
+  assert.equal(opencode.agent, 'opencode');
+  assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.id), [codex.id]);
+  assert.deepEqual(engine.listProvidersForAgent('grok-build').map((item) => item.id), [grok.id]);
+  assert.deepEqual(engine.listProvidersForAgent('opencode').map((item) => item.id), [opencode.id]);
+  engine.setAgent('codex');
+  assert.equal(engine.use('relay').providerId, codex.id);
+  engine.setAgent('grok-build');
+  assert.equal(engine.use('relay').providerId, grok.id);
+  engine.updateProvider(codex.id, { name: 'codex-relay' });
+  assert.equal(engine.getProvider(grok.id).provider.name, 'relay');
+  assert.equal(engine.getProvider(opencode.id).provider.name, 'relay');
 });
 
 test('addProvider isolates a preset to one agent instead of creating a multi-protocol provider', () => {

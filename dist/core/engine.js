@@ -7,8 +7,9 @@ import { atomicWrite, backupFiles, readText } from "./fsutil.js";
 import { getPreset, PRESETS } from "./presets.js";
 import { withPathEnv } from "./paths.js";
 import { buildChildEnv, classifyProbe, cleanupPingDirs, commandLine, createPingDirs, isProbeTestStep, PING_TIMEOUT_MS, randomPingPrompt, runCommand, } from "./probe.js";
-import { collectAgentInstallInfo, installAgentSteps, } from "./agent-install.js";
-import { AGENT_CHOICES, AGENT_IDS, isAgentId, now, liveProviderKey, slug, } from "./types.js";
+import { collectAgentInstallInfo, installAgentSteps, listAgentInstallInfo as collectAllAgentInstallInfo, } from "./agent-install.js";
+import { AGENT_CHOICES, AGENT_IDS, isAgentId, now, liveProviderKey, protocolCompatibleAgents, protocolsForAgent, slug, } from "./types.js";
+export { protocolsForAgent };
 export class EngineError extends Error {
     constructor(message) {
         super(message);
@@ -86,12 +87,15 @@ export class Engine {
             }
             throw new EngineError('Provider needs at least one protocol URL or a preset');
         }
+        const compatible = protocolCompatibleAgents(protocols);
+        const boundAgent = agent || (compatible.length === 1 ? compatible[0] : undefined);
         const provider = {
             id,
             name: baseName,
             apiKey: input.apiKey || '',
             websiteUrl: input.websiteUrl || preset?.websiteUrl,
             notes: input.notes,
+            agent: boundAgent,
             protocols,
             createdAt: now(),
             updatedAt: now(),
@@ -249,6 +253,9 @@ export class Engine {
     }
     agentInstallInfo(agentId) {
         return collectAgentInstallInfo(requireAgent(agentId));
+    }
+    listAgentInstallInfo() {
+        return collectAllAgentInstallInfo();
     }
     async *installAgent(agentId) {
         yield* installAgentSteps(requireAgent(agentId));
@@ -701,15 +708,6 @@ function resolvePingAgent(provider, requested) {
         return 'codex';
     return supported[0];
 }
-export function protocolsForAgent(agent) {
-    if (agent === 'claude')
-        return ['anthropic'];
-    if (agent === 'codex' || agent === 'opencode' || agent === 'grok-build')
-        return ['openai'];
-    if (agent === 'gemini')
-        return ['gemini'];
-    return ['openai', 'anthropic', 'gemini'];
-}
 function resolveProviderAgent(agent) {
     if (agent && isAgentId(agent))
         return agent;
@@ -770,10 +768,14 @@ function isolatedProtocols(input, preset) {
     return next;
 }
 export function providerSupportsAgent(provider, agent) {
+    if (!agent)
+        return true;
+    if (provider.agent)
+        return provider.agent === agent;
     return protocolsForAgent(agent).some((item) => Boolean(provider.protocols[item]?.baseUrl));
 }
 function matchLiveProvider(agentId, live) {
-    const providers = db.listProviders();
+    const providers = db.listProviders().filter((item) => providerSupportsAgent(item, agentId));
     if (agentId === 'codex' && live.providerId) {
         const key = live.providerId;
         return providers.find((item) => liveProviderKey(item.id, 'codex') === key || item.id === key);

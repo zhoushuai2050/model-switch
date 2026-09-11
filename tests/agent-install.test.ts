@@ -58,6 +58,7 @@ test('parseAgentVersion reads common CLI banners', () => {
   assert.equal(parseAgentVersion('codex-cli 0.154.0'), '0.154.0');
   assert.equal(parseAgentVersion('grok 1.0.25'), '1.0.25');
   assert.equal(parseAgentVersion('v1.18.30'), '1.18.30');
+  assert.equal(parseAgentVersion('gemini 0.59'), '0.59');
 });
 
 test('compareVersions orders semver cores', () => {
@@ -123,6 +124,13 @@ test('agentInstallInfo reports none when the installed version matches latest', 
   assert.equal(info.latest, '2.0.0');
   assert.equal(info.action, 'none');
   assert.equal(info.outdated, false);
+});
+
+test('listAgentInstallInfo marks outdated CLIs as update', async () => {
+  const engine = new Engine();
+  const list = await engine.listAgentInstallInfo();
+  assert.deepEqual(list.map((item) => item.id), ['claude', 'codex', 'grok-build', 'gemini', 'opencode']);
+  assert.ok(list.every((item) => item.installed && item.action === 'update'));
 });
 
 test('installAgent streams npm success without a real npm install', async () => {

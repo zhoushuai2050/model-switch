@@ -273,6 +273,13 @@ button { cursor: pointer; }
   box-shadow: 0 1px 0 var(--hover-bg), 0 6px 16px rgba(0,0,0,0.18);
 }
 .switcher button.missing { opacity: 0.72; }
+.switcher button.outdated .glyph { box-shadow: 0 0 0 1px var(--warn); }
+.switcher-note {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--warn);
+  letter-spacing: 0.02em;
+}
 .glyph {
   width: 18px; height: 18px; border-radius: 5px;
   display: grid; place-items: center;
@@ -335,7 +342,7 @@ button { cursor: pointer; }
   position: relative; overflow: hidden;
   background: var(--card); border: 1px solid var(--line);
   border-radius: 16px; padding: 16px 16px 14px;
-  display: flex; flex-direction: column; align-items: stretch; gap: 14px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 .card:hover {
@@ -355,7 +362,7 @@ button { cursor: pointer; }
   background: linear-gradient(180deg, var(--primary-soft), transparent 36%);
 }
 .card-head, .card-title, .card-body, .card-actions { position: relative; }
-.card-head { display: flex; align-items: flex-start; gap: 12px; }
+.card-head { display: flex; align-items: center; gap: 12px; }
 .card-title { min-width: 0; flex: 1; }
 .card-body { flex: 1; min-width: 0; }
 .icon-box {
@@ -367,33 +374,23 @@ button { cursor: pointer; }
 .icon-box.openai { color: var(--tag-openai-fg); border-color: var(--tag-openai-border); background: var(--tag-openai-bg); }
 .icon-box.anthropic { color: var(--tag-anthropic-fg); border-color: var(--tag-anthropic-border); background: var(--tag-anthropic-bg); }
 .icon-box.gemini { color: var(--tag-gemini-fg); border-color: var(--tag-gemini-border); background: var(--tag-gemini-bg); }
-.card h3 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.card-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.card-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.key-pill {
-  flex: none; font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
-  padding: 2px 6px; border-radius: 999px;
-  color: var(--green); background: var(--green-soft); border: 1px solid transparent;
+.card h3 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.card-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-url {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: var(--mono);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.tag {
-  font-size: 10px; font-weight: 750; letter-spacing: 0.035em;
-  padding: 3px 8px; border-radius: 999px;
-  border: 1px solid var(--tag-neutral-border); background: var(--tag-neutral-bg); color: var(--tag-neutral-fg);
-  line-height: 1.2; text-shadow: none;
-}
-.tag.openai { color: var(--tag-openai-fg); border-color: var(--tag-openai-border); background: var(--tag-openai-bg); }
-.tag.anthropic { color: var(--tag-anthropic-fg); border-color: var(--tag-anthropic-border); background: var(--tag-anthropic-bg); }
-.tag.gemini { color: var(--tag-gemini-fg); border-color: var(--tag-gemini-border); background: var(--tag-gemini-bg); }
-.tag.dim { opacity: 1; filter: grayscale(0.55) saturate(0.65); }
+.card-url.missing { color: var(--faint); font-family: var(--font); }
 .meta { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 4px; word-break: break-all; }
-.card .meta.url { margin-top: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meta.models { color: var(--ink); font-family: var(--font); margin-top: 0; }
 
 .card-models, .model-editor { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.model-editor-label, .current-model-label { color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
-.current-model { display: flex; flex-direction: column; gap: 2px; }
-.current-model-name { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-editor-label { color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; }
 .model-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; align-items: center; }
 .model-chip {
   display: inline-flex; align-items: stretch; max-width: 100%;
@@ -406,17 +403,13 @@ button { cursor: pointer; }
 }
 .model-chip-name, .model-chip-del, .model-chip-add { appearance: none; -webkit-appearance: none; }
 .model-chip-name {
-  border: 0; background: transparent; min-width: 0; max-width: 180px;
+  border: 0; background: transparent; min-width: 0; max-width: 220px;
   color: var(--ink); height: 26px; padding: 0 10px;
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center;
   font-size: 12px; font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .model-chip.selected .model-chip-name { color: var(--primary); font-weight: 700; }
-.model-chip-flag {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-  font-family: var(--font); color: var(--primary);
-}
 .model-chip-del {
   border: 0; border-left: 1px solid var(--line);
   background: transparent; color: var(--faint);

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { findBinary } from '../adapters/which.ts';
 import { getAdapter } from '../adapters/index.ts';
 import { runCommand } from './probe.ts';
-import type { AgentId, PingStep } from './types.ts';
+import { AGENT_IDS, type AgentId, type PingStep } from './types.ts';
 
 export const AGENT_NPM_REGISTRY = 'https://registry.npmjs.org/';
 
@@ -38,8 +38,11 @@ export function agentInstallNpmArgs(npmPackage: string): string[] {
 }
 
 export function parseAgentVersion(text: string): string | undefined {
-  const match = String(text || '').match(/\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?)\b/i);
-  return match?.[1];
+  const src = String(text || '');
+  const three = src.match(/\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?)\b/i);
+  if (three?.[1]) return three[1];
+  const two = src.match(/\bv?(\d+\.\d+)(?![0-9.])/i);
+  return two?.[1];
 }
 
 export function compareVersions(a: string, b: string): number {
@@ -91,12 +94,22 @@ export async function fetchNpmLatest(npmPackage: string, timeoutMs = 8000): Prom
   }
 }
 
+const VERSION_ARGS = [['--version'], ['-v'], ['version']];
+
 export async function readInstalledVersion(bin: string): Promise<string | undefined> {
-  const run = await runCommand(
-    { command: bin, args: ['--version'], env: envMap() },
-    { cwd: process.cwd(), timeoutMs: 8000 },
-  );
-  return parseAgentVersion(`${run.stdout}\n${run.stderr}`);
+  for (const args of VERSION_ARGS) {
+    const run = await runCommand(
+      { command: bin, args, env: envMap() },
+      { cwd: process.cwd(), timeoutMs: 8000 },
+    );
+    const version = parseAgentVersion(`${run.stdout}\n${run.stderr}`);
+    if (version) return version;
+  }
+  return undefined;
+}
+
+export function listAgentInstallInfo(): Promise<AgentInstallInfo[]> {
+  return Promise.all(AGENT_IDS.map((id) => collectAgentInstallInfo(id)));
 }
 
 export async function collectAgentInstallInfo(agentId: AgentId): Promise<AgentInstallInfo> {

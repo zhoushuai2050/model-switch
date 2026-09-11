@@ -21,6 +21,7 @@ import {
 import {
   collectAgentInstallInfo,
   installAgentSteps,
+  listAgentInstallInfo as collectAllAgentInstallInfo,
   type AgentInstallInfo,
 } from './agent-install.ts';
 import {
@@ -29,6 +30,8 @@ import {
   isAgentId,
   now,
   liveProviderKey,
+  protocolCompatibleAgents,
+  protocolsForAgent,
   slug,
   type AgentId,
   type AgentLiveStatus,
@@ -42,6 +45,8 @@ import {
   type Provider,
   type SwitchResult,
 } from './types.ts';
+
+export { protocolsForAgent };
 
 export class EngineError extends Error {
   constructor(message: string) {
@@ -142,12 +147,15 @@ export class Engine {
       }
       throw new EngineError('Provider needs at least one protocol URL or a preset');
     }
+    const compatible = protocolCompatibleAgents(protocols);
+    const boundAgent = agent || (compatible.length === 1 ? compatible[0] : undefined);
     const provider: Provider = {
       id,
       name: baseName,
       apiKey: input.apiKey || '',
       websiteUrl: input.websiteUrl || preset?.websiteUrl,
       notes: input.notes,
+      agent: boundAgent,
       protocols,
       createdAt: now(),
       updatedAt: now(),
@@ -330,6 +338,10 @@ export class Engine {
 
   agentInstallInfo(agentId: string): Promise<AgentInstallInfo> {
     return collectAgentInstallInfo(requireAgent(agentId));
+  }
+
+  listAgentInstallInfo(): Promise<AgentInstallInfo[]> {
+    return collectAllAgentInstallInfo();
   }
 
   async *installAgent(agentId: string): AsyncGenerator<PingStep> {
@@ -810,13 +822,6 @@ function resolvePingAgent(provider: Provider, requested?: string): AgentId | und
   return supported[0];
 }
 
-export function protocolsForAgent(agent?: AgentId): Protocol[] {
-  if (agent === 'claude') return ['anthropic'];
-  if (agent === 'codex' || agent === 'opencode' || agent === 'grok-build') return ['openai'];
-  if (agent === 'gemini') return ['gemini'];
-  return ['openai', 'anthropic', 'gemini'];
-}
-
 function resolveProviderAgent(agent?: string): AgentId | undefined {
   if (agent && isAgentId(agent)) return agent;
   const current = db.getState().currentAgent;
@@ -891,6 +896,8 @@ function isolatedProtocols(
 }
 
 export function providerSupportsAgent(provider: Provider, agent?: AgentId): boolean {
+  if (!agent) return true;
+  if (provider.agent) return provider.agent === agent;
   return protocolsForAgent(agent).some((item) => Boolean(provider.protocols[item]?.baseUrl));
 }
 
@@ -898,7 +905,7 @@ function matchLiveProvider(
   agentId: AgentId,
   live: { providerId?: string; baseUrl?: string; providerLabel?: string },
 ): Provider | undefined {
-  const providers = db.listProviders();
+  const providers = db.listProviders().filter((item) => providerSupportsAgent(item, agentId));
   if (agentId === 'codex' && live.providerId) {
     const key = live.providerId;
     return providers.find((item) => liveProviderKey(item.id, 'codex') === key || item.id === key);

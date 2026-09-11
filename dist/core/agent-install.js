@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { findBinary } from "../adapters/which.js";
 import { getAdapter } from "../adapters/index.js";
 import { runCommand } from "./probe.js";
+import { AGENT_IDS } from "./types.js";
 export const AGENT_NPM_REGISTRY = 'https://registry.npmjs.org/';
 export const AGENT_NPM_PACKAGES = {
     claude: '@anthropic-ai/claude-code',
@@ -17,8 +18,12 @@ export function agentInstallNpmArgs(npmPackage) {
     return ['i', '-g', npmPackage, `--registry=${AGENT_NPM_REGISTRY}`];
 }
 export function parseAgentVersion(text) {
-    const match = String(text || '').match(/\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?)\b/i);
-    return match?.[1];
+    const src = String(text || '');
+    const three = src.match(/\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)?)\b/i);
+    if (three?.[1])
+        return three[1];
+    const two = src.match(/\bv?(\d+\.\d+)(?![0-9.])/i);
+    return two?.[1];
 }
 export function compareVersions(a, b) {
     const left = versionParts(a);
@@ -68,9 +73,18 @@ export async function fetchNpmLatest(npmPackage, timeoutMs = 8000) {
         clearTimeout(timer);
     }
 }
+const VERSION_ARGS = [['--version'], ['-v'], ['version']];
 export async function readInstalledVersion(bin) {
-    const run = await runCommand({ command: bin, args: ['--version'], env: envMap() }, { cwd: process.cwd(), timeoutMs: 8000 });
-    return parseAgentVersion(`${run.stdout}\n${run.stderr}`);
+    for (const args of VERSION_ARGS) {
+        const run = await runCommand({ command: bin, args, env: envMap() }, { cwd: process.cwd(), timeoutMs: 8000 });
+        const version = parseAgentVersion(`${run.stdout}\n${run.stderr}`);
+        if (version)
+            return version;
+    }
+    return undefined;
+}
+export function listAgentInstallInfo() {
+    return Promise.all(AGENT_IDS.map((id) => collectAgentInstallInfo(id)));
 }
 export async function collectAgentInstallInfo(agentId) {
     const adapter = getAdapter(agentId);

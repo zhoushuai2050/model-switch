@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { dbPath } from './paths.ts';
+import { randomUUID } from 'node:crypto';
 import type {
   AgentId,
   AppState,
@@ -12,7 +13,7 @@ import type {
   ProtocolConfig,
   Provider,
 } from './types.ts';
-import { AGENT_IDS } from './types.ts';
+import { AGENT_IDS, isAgentId, protocolCompatibleAgents, protocolsForAgent, slug } from './types.ts';
 
 type Row = Record<string, unknown>;
 type SqliteDatabase = import('node:sqlite').DatabaseSync;
@@ -55,6 +56,7 @@ function migrate(db: SqliteDatabase): void {
       website_url TEXT,
       notes TEXT,
       protocols_json TEXT NOT NULL DEFAULT '{}',
+      agent TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -96,6 +98,7 @@ function migrate(db: SqliteDatabase): void {
     DROP TABLE IF EXISTS profiles;
   `);
   ensureModelColumns(db);
+  ensureProviderAgents(db);
 }
 
 function tableColumns(db: SqliteDatabase, table: string): string[] {
@@ -129,6 +132,74 @@ function ensureModelColumns(db: SqliteDatabase): void {
   }
 }
 
+
+function ensureProviderAgents(db: SqliteDatabase): void {
+  const cols = tableColumns(db, 'providers');
+  if (!cols.includes('agent')) {
+    db.exec('ALTER TABLE providers ADD COLUMN agent TEXT');
+  }
+  const unassigned = listProviders(db).filter((item) => !item.agent || !isAgentId(item.agent));
+  if (!unassigned.length) return;
+
+  const usedByProvider = new Map<string, Set<AgentId>>();
+  const lastByProvider = new Map<string, AgentId>();
+  for (const row of db.prepare('SELECT provider_id, agent_id FROM switch_logs ORDER BY id ASC').all().map((item) => asRecord(item))) {
+    const providerId = String(row.provider_id || '');
+    const agentId = String(row.agent_id || '');
+    if (!providerId || !isAgentId(agentId)) continue;
+    lastByProvider.set(providerId, agentId);
+    const used = usedByProvider.get(providerId) || new Set<AgentId>();
+    used.add(agentId);
+    usedByProvider.set(providerId, used);
+  }
+  const currentAgent = getState(db).currentAgent;
+
+  for (const provider of unassigned) {
+    const compatible = protocolCompatibleAgents(provider.protocols);
+    if (!compatible.length) continue;
+    const used = [...(usedByProvider.get(provider.id) || [])].filter((item) => compatible.includes(item));
+    const last = lastByProvider.get(provider.id);
+    let primary: AgentId;
+    if (last && compatible.includes(last)) primary = last;
+    else if (used.length === 1) primary = used[0];
+    else if (compatible.length === 1) primary = compatible[0];
+    else if (currentAgent && compatible.includes(currentAgent)) primary = currentAgent;
+    else primary = compatible[0];
+
+    const others = used.filter((item) => item !== primary);
+    const models = modelsForProvider(provider.id, db);
+    upsertProvider({
+      ...provider,
+      agent: primary,
+      protocols: protocolsForBoundAgent(provider.protocols, primary),
+    }, db);
+    for (const agent of others) {
+      const clone: Provider = {
+        ...provider,
+        id: randomUUID(),
+        agent,
+        protocols: protocolsForBoundAgent(provider.protocols, agent),
+      };
+      upsertProvider(clone, db);
+      for (const model of models) {
+        upsertModel({
+          ...model,
+          id: `${clone.id}-${slug(model.modelId)}`,
+          providerId: clone.id,
+        }, db);
+      }
+    }
+  }
+}
+
+function protocolsForBoundAgent(protocols: Provider['protocols'], agent: AgentId): Provider['protocols'] {
+  const next: Provider['protocols'] = {};
+  for (const protocol of protocolsForAgent(agent)) {
+    if (protocols[protocol]) next[protocol] = protocols[protocol];
+  }
+  return Object.keys(next).length ? next : protocols;
+}
+
 function asRecord(row: unknown): Row {
   return row as Row;
 }
@@ -144,14 +215,15 @@ export function getProvider(id: string, db = getDb()): Provider | undefined {
 
 export function upsertProvider(provider: Provider, db = getDb()): void {
   db.prepare(
-    `INSERT INTO providers (id, name, api_key, website_url, notes, protocols_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO providers (id, name, api_key, website_url, notes, protocols_json, agent, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        api_key = excluded.api_key,
        website_url = excluded.website_url,
        notes = excluded.notes,
        protocols_json = excluded.protocols_json,
+       agent = excluded.agent,
        updated_at = excluded.updated_at`,
   ).run(
     provider.id,
@@ -160,6 +232,7 @@ export function upsertProvider(provider: Provider, db = getDb()): void {
     provider.websiteUrl ?? null,
     provider.notes ?? null,
     JSON.stringify(provider.protocols),
+    provider.agent ?? null,
     provider.createdAt,
     provider.updatedAt,
   );
@@ -333,6 +406,7 @@ function toProvider(row: Row): Provider {
     apiKey: String(row.api_key ?? ''),
     websiteUrl: row.website_url ? String(row.website_url) : undefined,
     notes: row.notes ? String(row.notes) : undefined,
+    agent: isAgentId(String(row.agent || '')) ? (row.agent as AgentId) : undefined,
     protocols: JSON.parse(String(row.protocols_json || '{}')) as Partial<
       Record<Protocol, ProtocolConfig>
     >,

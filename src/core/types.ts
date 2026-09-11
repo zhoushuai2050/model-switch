@@ -21,6 +21,7 @@ export interface Provider {
   apiKey: string;
   websiteUrl?: string;
   notes?: string;
+  agent?: AgentId;
   protocols: Partial<Record<Protocol, ProtocolConfig>>;
   createdAt: number;
   updatedAt: number;
@@ -79,6 +80,20 @@ export interface SwitchResult {
 export interface AppState {
   currentAgent?: AgentId;
   currentModels: Partial<Record<AgentId, string>>;
+}
+
+
+export function protocolsForAgent(agent?: AgentId): Protocol[] {
+  if (agent === 'claude') return ['anthropic'];
+  if (agent === 'codex' || agent === 'opencode' || agent === 'grok-build') return ['openai'];
+  if (agent === 'gemini') return ['gemini'];
+  return ['openai', 'anthropic', 'gemini'];
+}
+
+export function protocolCompatibleAgents(protocols: Provider['protocols']): AgentId[] {
+  return AGENT_IDS.filter((agent) =>
+    protocolsForAgent(agent).some((protocol) => Boolean(protocols[protocol]?.baseUrl)),
+  );
 }
 
 export function isAgentId(value: string): value is AgentId {

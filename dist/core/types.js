@@ -1,6 +1,18 @@
 export const AGENT_IDS = ['claude', 'codex', 'grok-build', 'gemini', 'opencode'];
 export const AGENT_CHOICES = AGENT_IDS.join('|');
 export const PROTOCOLS = ['openai', 'anthropic', 'gemini'];
+export function protocolsForAgent(agent) {
+    if (agent === 'claude')
+        return ['anthropic'];
+    if (agent === 'codex' || agent === 'opencode' || agent === 'grok-build')
+        return ['openai'];
+    if (agent === 'gemini')
+        return ['gemini'];
+    return ['openai', 'anthropic', 'gemini'];
+}
+export function protocolCompatibleAgents(protocols) {
+    return AGENT_IDS.filter((agent) => protocolsForAgent(agent).some((protocol) => Boolean(protocols[protocol]?.baseUrl)));
+}
 export function isAgentId(value) {
     return AGENT_IDS.includes(value);
 }

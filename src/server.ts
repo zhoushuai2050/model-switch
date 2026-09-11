@@ -56,6 +56,9 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
     const body = await readBody(req);
     return send(res, 200, engine.saveAgentConfig(id, String(body.content ?? '')));
   }
+  if (req.method === 'GET' && path === '/api/agents/install') {
+    return send(res, 200, await engine.listAgentInstallInfo());
+  }
   if (req.method === 'GET' && path.startsWith('/api/agents/') && path.endsWith('/install')) {
     const id = decodeURIComponent(path.split('/')[3] || '');
     return send(res, 200, await engine.agentInstallInfo(id));

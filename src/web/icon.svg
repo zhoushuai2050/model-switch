@@ -1,12 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <defs>
-    <linearGradient id="brand" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#60a5fa"/>
-      <stop offset="1" stop-color="#2563eb"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="9" fill="url(#brand)"/>
-  <path d="M6.5 11h19m0 0-4-4m4 4-4 4M25.5 21h-19m0 0 4 4m-4-4 4-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="11" cy="11" r="1.25" fill="#fff"/>
-  <circle cx="21" cy="21" r="1.25" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Model Switch">
+  <rect width="32" height="32" rx="8" fill="#3b82f6"/>
+  <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="7.25" fill="none" stroke="#fff" stroke-opacity="0.22" stroke-width="1"/>
+  <path fill="#fff" d="M7 9H17.2V6.7L25.4 11.2 17.2 15.7V13.4H7z"/>
+  <path fill="#fff" d="M25 19.3H14.8V17L6.6 21.5 14.8 26V23.7H25z"/>
 </svg>
