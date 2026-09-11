@@ -111,7 +111,7 @@ function asRecord(row) {
     return row;
 }
 export function listProviders(db = getDb()) {
-    return db.prepare('SELECT * FROM providers ORDER BY name').all().map((row) => toProvider(asRecord(row)));
+    return db.prepare('SELECT * FROM providers ORDER BY created_at ASC, rowid ASC').all().map((row) => toProvider(asRecord(row)));
 }
 export function getProvider(id, db = getDb()) {
     const row = db.prepare('SELECT * FROM providers WHERE id = ?').get(id);

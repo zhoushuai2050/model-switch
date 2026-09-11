@@ -58,3 +58,8 @@ export function opencodeDataHome(): string {
   const xdg = envValue('XDG_DATA_HOME') || join(homeDir(), '.local', 'share');
   return envValue('OPENCODE_DATA_DIR') || join(xdg, 'opencode');
 }
+
+export function grokHome(): string {
+  return envValue('GROK_HOME') || join(homeDir(), '.grok');
+}
+

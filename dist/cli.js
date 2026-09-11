@@ -7,7 +7,7 @@ import { flag, flagList, parseArgv } from "./cli/parse.js";
 import { color, printProviders, printStatus, printSwitch } from "./cli/format.js";
 import { runTui } from "./cli/tui.js";
 import { startServer } from "./server.js";
-import { isAgentId } from "./core/types.js";
+import { AGENT_CHOICES, isAgentId } from "./core/types.js";
 const args = parseArgv(process.argv);
 if (args.flags.help || args.cmd === 'help' || args.cmd === '--help') {
     const topic = args.cmd === 'help' ? args.args[0] || '' : args.cmd === 'provider' ? 'custom' : '';
@@ -48,7 +48,7 @@ async function dispatch() {
         }
         case 'agent': {
             if (!args.args[0])
-                throw new EngineError('Usage: msw agent <claude|codex|gemini|opencode>');
+                throw new EngineError(`Usage: msw agent <${AGENT_CHOICES}>`);
             engine.setAgent(args.args[0]);
             console.log(`current agent: ${args.args[0]}`);
             return;
@@ -283,7 +283,7 @@ function doctor() {
     for (const agent of status.agents) {
         const bin = agent.installed ? color.green(agent.bin || 'yes') : color.dim('missing');
         const cfg = agent.configured ? color.green('config') : color.dim('no-config');
-        console.log(`${agent.id.padEnd(9)} ${bin}  ${cfg}  ${agent.model || ''}`);
+        console.log(`${agent.id.padEnd(11)} ${bin}  ${cfg}  ${agent.model || ''}`);
     }
     if (!engine.listProviders().length)
         console.log(color.dim('hint: msw provider add kimi --key sk-... --agent claude'));

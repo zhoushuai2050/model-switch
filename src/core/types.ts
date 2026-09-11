@@ -1,4 +1,5 @@
-export const AGENT_IDS = ['claude', 'codex', 'gemini', 'opencode'] as const;
+export const AGENT_IDS = ['claude', 'codex', 'grok-build', 'gemini', 'opencode'] as const;
+export const AGENT_CHOICES = AGENT_IDS.join('|');
 export type AgentId = (typeof AGENT_IDS)[number];
 
 export const PROTOCOLS = ['openai', 'anthropic', 'gemini'] as const;

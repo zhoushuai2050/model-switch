@@ -20,15 +20,17 @@ beforeEach(() => {
   process.env.CODEX_HOME = join(root, '.codex');
   process.env.CLAUDE_CONFIG_DIR = join(root, '.claude');
   process.env.GEMINI_CONFIG_DIR = join(root, '.gemini');
+  process.env.GROK_HOME = join(root, '.grok');
   process.env.XDG_CONFIG_HOME = join(root, '.config');
   process.env.MSW_PROBE_LOG = join(root, 'probe-log.json');
   delete process.env.MSW_PROBE_FAIL;
   delete process.env.MSW_PROBE_REPLY;
   mkdirSync(join(root, '.codex'), { recursive: true });
   mkdirSync(join(root, '.claude'), { recursive: true });
+  mkdirSync(join(root, '.grok'), { recursive: true });
   const binDir = join(root, 'bin');
   mkdirSync(binDir, { recursive: true });
-  for (const name of ['claude', 'codex', 'gemini', 'opencode']) {
+  for (const name of ['claude', 'codex', 'gemini', 'opencode', 'grok']) {
     const dest = join(binDir, name);
     copyFileSync(fakeAgent, dest);
     chmodSync(dest, 0o755);
@@ -43,6 +45,17 @@ afterEach(() => {
   delete process.env.MSW_PROBE_FAIL;
   delete process.env.MSW_PROBE_REPLY;
   resetDbCache();
+});
+
+test('agents are listed as claude, codex, grok-build, gemini, opencode', () => {
+  const engine = new Engine();
+  assert.deepEqual(engine.listAgents().map((item) => item.id), [
+    'claude',
+    'codex',
+    'grok-build',
+    'gemini',
+    'opencode',
+  ]);
 });
 
 test('new providers use random UUID IDs while names remain usable targets', () => {
@@ -90,6 +103,7 @@ test('listProvidersForAgent filters by agent protocol like the web UI', () => {
   });
   assert.deepEqual(engine.listProvidersForAgent('claude').map((item) => item.name).sort(), ['claude-only']);
   assert.deepEqual(engine.listProvidersForAgent('codex').map((item) => item.name).sort(), ['codex-only']);
+  assert.deepEqual(engine.listProvidersForAgent('grok-build').map((item) => item.name).sort(), ['codex-only']);
   assert.deepEqual(engine.listProvidersForAgent('gemini').map((item) => item.name), []);
   const claudeModels = engine.getProvider(engine.listProvidersForAgent('claude').find((item) => item.name === 'claude-only')!.id).models.map((item) => item.modelId).sort();
   assert.deepEqual(claudeModels, ['claude-opus-4', 'claude-sonnet-4-6']);
@@ -751,4 +765,109 @@ test('ping opencode uses opencode run', async () => {
   const log = JSON.parse(readFileSync(join(root, 'probe-log.json'), 'utf8')) as { name: string; argv: string[] };
   assert.equal(log.name, 'opencode');
   assert.equal(log.argv[0], 'run');
+});
+
+test('listProviders returns creation order, not name order', () => {
+  const engine = new Engine();
+  const zeta = engine.addProvider({
+    name: 'zeta',
+    apiKey: 'sk-z',
+    openaiUrl: 'https://z.example/v1',
+    models: ['z'],
+  });
+  const alpha = engine.addProvider({
+    name: 'alpha',
+    apiKey: 'sk-a',
+    openaiUrl: 'https://a.example/v1',
+    models: ['a'],
+  });
+  assert.deepEqual(engine.listProviders().map((item) => item.id), [zeta.id, alpha.id]);
+  assert.deepEqual(engine.listProviders().map((item) => item.name), ['zeta', 'alpha']);
+});
+
+test('grok-build adapter writes quoted model tables and live status', () => {
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'relay',
+    apiKey: 'sk-grok',
+    openaiUrl: 'https://relay.example/v1',
+    wireApi: 'responses',
+    agent: 'grok-build',
+    models: ['grok-4.6', 'gpt-5.6-sol'],
+  });
+  engine.setAgent('grok-build');
+  engine.use('relay');
+  const text = readFileSync(join(root, '.grok', 'config.toml'), 'utf8');
+  assert.match(text, /\[models\]/);
+  assert.match(text, /default = "grok-4.6"/);
+  assert.match(text, /\[model\."grok-4\.6"\]/);
+  assert.match(text, /base_url = "https:\/\/relay.example\/v1"/);
+  assert.match(text, /api_key = "sk-grok"/);
+  assert.match(text, /api_backend = "responses"/);
+  assert.match(text, /\[model\."grok-4\.6"\.extra_headers\]/);
+  assert.match(text, /Authorization = "Bearer sk-grok"/);
+  assert.match(text, /\[model\."gpt-5\.6-sol"\]/);
+  const live = JSON.parse(readFileSync(join(root, '.grok', 'msw-live.json'), 'utf8')) as {
+    providerId: string;
+    model: string;
+    baseUrl: string;
+    providerLabel: string;
+  };
+  assert.equal(live.providerId, created.id);
+  assert.equal(live.model, 'grok-4.6');
+  assert.equal(live.baseUrl, 'https://relay.example/v1');
+  assert.equal(live.providerLabel, 'relay');
+  const status = engine.listAgents().find((item) => item.id === 'grok-build');
+  assert.equal(status?.currentProviderId, created.id);
+  assert.equal(status?.model, 'grok-4.6');
+  const spec = engine.launch({ agent: 'grok-build' });
+  assert.equal(spec.env.XAI_API_KEY, 'sk-grok');
+  assert.equal(spec.env.GROK_DEFAULT_MODEL, 'grok-4.6');
+  assert.equal(spec.env.GROK_XAI_API_BASE_URL, 'https://relay.example/v1');
+  assert.ok(spec.args.includes('-m'));
+  assert.ok(spec.args.includes('grok-4.6'));
+});
+
+test('grok-build apply maps chat wire api to chat_completions', () => {
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'kimi-relay',
+    apiKey: 'sk-kimi',
+    openaiUrl: 'https://api.moonshot.cn/v1',
+    wireApi: 'chat',
+    agent: 'grok-build',
+    models: ['kimi-k2.5'],
+  });
+  engine.setAgent('grok-build');
+  engine.use('kimi-relay');
+  const text = readFileSync(join(root, '.grok', 'config.toml'), 'utf8');
+  assert.match(text, /api_backend = "chat_completions"/);
+  assert.match(text, /default = "kimi-k2.5"/);
+});
+
+test('ping grok-build uses grok -p and does not mutate live config', async () => {
+  writeFileSync(join(root, '.grok', 'config.toml'), 'default = "keep-me"\n');
+  const engine = new Engine();
+  const created = engine.addProvider({
+    name: 'grok-p',
+    apiKey: 'sk-x',
+    openaiUrl: 'https://relay.example/v1',
+    agent: 'grok-build',
+    models: ['grok-4.6'],
+  });
+  const result = await engine.ping(created.id, 'grok-build');
+  assert.equal(result.ok, true);
+  assert.ok(result.steps.some((step) => step.id === 'grok-build-sdk' && step.status === 'ok'));
+  const log = JSON.parse(readFileSync(join(root, 'probe-log.json'), 'utf8')) as {
+    name: string;
+    argv: string[];
+    env: Record<string, string>;
+  };
+  assert.equal(log.name, 'grok');
+  assert.ok(log.argv.includes('-p'));
+  assert.ok(log.argv.includes('--output-format'));
+  assert.ok(log.argv.includes('grok-4.6'));
+  assert.equal(log.env.XAI_API_KEY, 'sk-x');
+  assert.equal(log.env.GROK_DEFAULT_MODEL, 'grok-4.6');
+  assert.equal(readFileSync(join(root, '.grok', 'config.toml'), 'utf8'), 'default = "keep-me"\n');
 });

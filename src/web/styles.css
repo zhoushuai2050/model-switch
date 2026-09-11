@@ -226,12 +226,13 @@ button { cursor: pointer; }
 
 .shell { min-height: 100vh; display: flex; flex-direction: column; }
 .titlebar {
-  height: 64px;
+  min-height: 64px;
+  height: auto;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+  grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr);
   align-items: center;
   gap: 16px;
-  padding: 0 20px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--header-bg);
   backdrop-filter: blur(12px);
@@ -252,6 +253,8 @@ button { cursor: pointer; }
 
 .switcher {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
   background: var(--control-bg);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -276,6 +279,7 @@ button { cursor: pointer; }
 }
 .glyph.claude { background: #d97757; }
 .glyph.codex { background: #10a37f; }
+.glyph.grok-build { background: #f4f4f5; color: #111; }
 .glyph.gemini { background: #4f8cff; }
 .glyph.opencode { background: #fb923c; }
 

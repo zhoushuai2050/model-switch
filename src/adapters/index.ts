@@ -2,14 +2,16 @@ import type { AgentId } from '../core/types.ts';
 import { claudeAdapter } from './claude.ts';
 import { codexAdapter } from './codex.ts';
 import { geminiAdapter } from './gemini.ts';
+import { grokBuildAdapter } from './grok-build.ts';
 import { opencodeAdapter } from './opencode.ts';
 import type { Adapter } from './types.ts';
 
-export const adapters: Adapter[] = [claudeAdapter, codexAdapter, geminiAdapter, opencodeAdapter];
+export const adapters: Adapter[] = [claudeAdapter, codexAdapter, grokBuildAdapter, geminiAdapter, opencodeAdapter];
 
 export const adapterMap: Record<AgentId, Adapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
+  'grok-build': grokBuildAdapter,
   gemini: geminiAdapter,
   opencode: opencodeAdapter,
 };

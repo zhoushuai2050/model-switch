@@ -7,7 +7,7 @@ import { flag, flagList, parseArgv } from './cli/parse.ts';
 import { color, printProviders, printStatus, printSwitch } from './cli/format.ts';
 import { runTui } from './cli/tui.ts';
 import { startServer } from './server.ts';
-import { isAgentId, type AgentId } from './core/types.ts';
+import { AGENT_CHOICES, isAgentId, type AgentId } from './core/types.ts';
 
 const args = parseArgv(process.argv);
 
@@ -49,7 +49,7 @@ async function dispatch(): Promise<void> {
       return;
     }
     case 'agent': {
-      if (!args.args[0]) throw new EngineError('Usage: msw agent <claude|codex|gemini|opencode>');
+      if (!args.args[0]) throw new EngineError(`Usage: msw agent <${AGENT_CHOICES}>`);
       engine.setAgent(args.args[0]);
       console.log(`current agent: ${args.args[0]}`);
       return;
@@ -275,7 +275,7 @@ function doctor(): void {
   for (const agent of status.agents) {
     const bin = agent.installed ? color.green(agent.bin || 'yes') : color.dim('missing');
     const cfg = agent.configured ? color.green('config') : color.dim('no-config');
-    console.log(`${agent.id.padEnd(9)} ${bin}  ${cfg}  ${agent.model || ''}`);
+    console.log(`${agent.id.padEnd(11)} ${bin}  ${cfg}  ${agent.model || ''}`);
   }
   if (!engine.listProviders().length) console.log(color.dim('hint: msw provider add kimi --key sk-... --agent claude'));
 }

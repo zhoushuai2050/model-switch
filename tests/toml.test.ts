@@ -28,3 +28,22 @@ trust_level = "trusted"
   assert.equal(getTable(next, 'model_providers.kimi')?.base_url, 'https://api.moonshot.cn/v1');
   assert.equal(getTable(next, 'model_providers.crs')?.name, 'crs');
 });
+
+test('upsertTable writes quoted grok model tables', () => {
+  const src = `[models]
+default = "old"
+`;
+  let next = upsertTable(src, 'model."grok-4.6"', {
+    model: 'grok-4.6',
+    base_url: 'https://api.x.ai/v1',
+    api_backend: 'responses',
+  });
+  next = upsertTable(next, 'model."grok-4.6".extra_headers', {
+    Authorization: 'Bearer sk-x',
+  });
+  assert.equal(getTable(next, 'model."grok-4.6"')?.model, 'grok-4.6');
+  assert.equal(getTable(next, 'model."grok-4.6"')?.base_url, 'https://api.x.ai/v1');
+  assert.equal(getTable(next, 'model."grok-4.6".extra_headers')?.Authorization, 'Bearer sk-x');
+  assert.match(next, /\[model\."grok-4\.6"\]/);
+  assert.match(next, /\[models\]/);
+});

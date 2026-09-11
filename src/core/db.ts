@@ -134,7 +134,7 @@ function asRecord(row: unknown): Row {
 }
 
 export function listProviders(db = getDb()): Provider[] {
-  return db.prepare('SELECT * FROM providers ORDER BY name').all().map((row) => toProvider(asRecord(row)));
+  return db.prepare('SELECT * FROM providers ORDER BY created_at ASC, rowid ASC').all().map((row) => toProvider(asRecord(row)));
 }
 
 export function getProvider(id: string, db = getDb()): Provider | undefined {

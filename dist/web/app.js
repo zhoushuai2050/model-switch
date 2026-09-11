@@ -4,6 +4,7 @@ const $ = (sel) => document.querySelector(sel);
 const APPS = [
   { id: 'claude', name: 'Claude' },
   { id: 'codex', name: 'Codex' },
+  { id: 'grok-build', name: 'Grok Build' },
   { id: 'gemini', name: 'Gemini' },
   { id: 'opencode', name: 'OpenCode' },
 ];
@@ -26,6 +27,7 @@ const APP_PROTOCOL = {
   claude: ['anthropic'],
   codex: ['openai'],
   opencode: ['openai'],
+  'grok-build': ['openai'],
   gemini: ['gemini'],
 };
 

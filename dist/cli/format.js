@@ -16,7 +16,7 @@ export function printStatus(agents, currentAgent) {
         const state = agent.installed ? color.green('ready') : color.dim('no bin');
         const model = agent.model || '-';
         const provider = agent.providerLabel || '-';
-        console.log(`${mark} ${agent.id.padEnd(9)} ${state.padEnd(16)} ${model.padEnd(22)} ${color.dim(provider)}`);
+        console.log(`${mark} ${agent.id.padEnd(11)} ${state.padEnd(16)} ${model.padEnd(22)} ${color.dim(provider)}`);
     }
 }
 export function printSwitch(result) {

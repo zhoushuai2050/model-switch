@@ -1,7 +1,7 @@
 {
   "name": "model-switch",
   "version": "0.1.4",
-  "description": "Switch agents and models for Claude Code, Codex, Gemini CLI, and OpenCode",
+  "description": "Switch agents and models for Claude Code, Codex, Grok Build, Gemini CLI, and OpenCode",
   "type": "module",
   "bin": {
     "msw": "./bin/msw.cjs",
@@ -32,8 +32,10 @@
   },
   "homepage": "https://github.com/zhoushuai2050/model-switch#readme",
   "keywords": [
-    "codex",
     "claude",
+    "codex",
+    "grok",
+    "grok-build",
     "gemini",
     "opencode",
     "llm",

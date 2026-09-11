@@ -19,6 +19,7 @@ import {
   runCommand,
 } from './probe.ts';
 import {
+  AGENT_CHOICES,
   AGENT_IDS,
   isAgentId,
   now,
@@ -333,7 +334,7 @@ export class Engine {
   }
 
   setAgent(agentId: string) {
-    if (!isAgentId(agentId)) throw new EngineError(`Unknown agent: ${agentId}. Use claude|codex|gemini|opencode`);
+    if (!isAgentId(agentId)) throw new EngineError(`Unknown agent: ${agentId}. Use ${AGENT_CHOICES}`);
     db.setState({ currentAgent: agentId });
     return getAdapter(agentId);
   }
@@ -452,7 +453,7 @@ export class Engine {
     };
 
     if (!agent) {
-      const detail = '请先选择 Agent，或使用 --agent claude|codex|gemini|opencode';
+      const detail = `请先选择 Agent，或使用 --agent ${AGENT_CHOICES}`;
       yield { id: 'protocol', title: '检查协议', status: 'fail', detail };
       yield { id: 'summary', title: '测通失败', status: 'fail', detail };
       return;
@@ -771,7 +772,7 @@ function parseTarget(target: string, fallbackAgent?: AgentId): { kind: 'provider
 }
 
 function requireAgent(agentId?: string): AgentId {
-  if (!agentId) throw new EngineError('No current agent. Run msw agent codex|claude|gemini|opencode');
+  if (!agentId) throw new EngineError(`No current agent. Run msw agent ${AGENT_CHOICES}`);
   if (!isAgentId(agentId)) throw new EngineError(`Unknown agent: ${agentId}`);
   return agentId;
 }
@@ -798,7 +799,7 @@ function resolvePingAgent(provider: Provider, requested?: string): AgentId | und
 
 export function protocolsForAgent(agent?: AgentId): Protocol[] {
   if (agent === 'claude') return ['anthropic'];
-  if (agent === 'codex' || agent === 'opencode') return ['openai'];
+  if (agent === 'codex' || agent === 'opencode' || agent === 'grok-build') return ['openai'];
   if (agent === 'gemini') return ['gemini'];
   return ['openai', 'anthropic', 'gemini'];
 }
@@ -869,7 +870,7 @@ function isolatedProtocols(
     return next;
   }
   if (present.length > 1) {
-    throw new EngineError('添加供应商请指定 --agent claude 或 --agent codex，不再创建同时给多个 Agent 用的供应商');
+    throw new EngineError(`添加供应商请指定 --agent ${AGENT_CHOICES}，不再创建同时给多个 Agent 用的供应商`);
   }
   const next: Provider['protocols'] = {};
   for (const protocol of present) next[protocol] = merged[protocol];
@@ -892,6 +893,9 @@ function matchLiveProvider(
   if (agentId === 'opencode' && live.providerId) {
     const key = live.providerId;
     return providers.find((item) => liveProviderKey(item.id, 'opencode') === key || item.id === key);
+  }
+  if (agentId === 'grok-build' && live.providerId) {
+    return providers.find((item) => item.id === live.providerId);
   }
   const url = (live.baseUrl || '').replace(/\/$/, '');
   if (!url) return undefined;

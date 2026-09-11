@@ -30,6 +30,10 @@ if (logPath) {
         GEMINI_MODEL: process.env.GEMINI_MODEL,
         OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
         OPENCODE_MODEL: process.env.OPENCODE_MODEL,
+        GROK_HOME: process.env.GROK_HOME,
+        GROK_DEFAULT_MODEL: process.env.GROK_DEFAULT_MODEL,
+        GROK_XAI_API_BASE_URL: process.env.GROK_XAI_API_BASE_URL,
+        XAI_API_KEY: process.env.XAI_API_KEY,
       },
     }));
   } catch {
@@ -64,6 +68,8 @@ if (name === 'claude') {
   console.log(JSON.stringify({ response: reply }));
 } else if (name === 'opencode') {
   console.log(JSON.stringify({ type: 'text', text: reply }));
+} else if (name === 'grok' || name === 'grok-build') {
+  console.log(JSON.stringify({ type: 'result', result: reply }));
 } else {
   console.log(reply);
 }

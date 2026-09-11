@@ -1,4 +1,5 @@
-export const AGENT_IDS = ['claude', 'codex', 'gemini', 'opencode'];
+export const AGENT_IDS = ['claude', 'codex', 'grok-build', 'gemini', 'opencode'];
+export const AGENT_CHOICES = AGENT_IDS.join('|');
 export const PROTOCOLS = ['openai', 'anthropic', 'gemini'];
 export function isAgentId(value) {
     return AGENT_IDS.includes(value);

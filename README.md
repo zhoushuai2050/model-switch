@@ -1,8 +1,8 @@
 # Model Switch
 
-本机切换 Claude Code、Codex、Gemini CLI、OpenCode 的模型和供应商。
+本机切换 Claude Code、Codex、Grok Build、Gemini CLI、OpenCode 的模型和供应商。
 
-需要 Node.js 22+。先装好你要用的 Agent（`codex` / `claude` / `gemini` / `opencode`），再用 `msw` 改它们的配置。
+需要 Node.js 22+。先装好你要用的 Agent（`claude` / `codex` / `grok` / `gemini` / `opencode`），再用 `msw` 改它们的配置。
 
 ## 系统界面
 
@@ -62,7 +62,7 @@ Linux / macOS 完整可用。Windows 上用 `msw use` 改配置，然后新开�
 
 ## 加供应商
 
-供应商按 Agent 隔离：一次只创建 Claude 或 Codex，不再创建同时给多个 Agent 用的供应商。网页管理台顶部选中哪个 Agent，添加的就是那个 Agent 的供应商。
+供应商按 Agent 隔离：一次只创建一个 Agent 的供应商，不再创建同时给多个 Agent 用的供应商。网页管理台顶部选中哪个 Agent，添加的就是那个 Agent 的供应商。
 
 看有哪些预设：
 
@@ -81,13 +81,13 @@ msw provider add kimi --key sk-xxx --agent codex
 
 这会生成两条独立供应商，名字可以相同。
 
-只给 Codex / OpenCode：
+只给 Codex / OpenCode / Grok Build：
 
 ```bash
 msw provider add custom \
   --name local \
   --key sk-xxx \
-  --agent codex \
+  --agent grok-build \
   --base-url http://127.0.0.1:8000/v1 \
   --models grok-4.6,gpt-5.6-sol
 ```
@@ -103,7 +103,7 @@ msw provider add custom \
   --models grok-4.6
 ```
 
-- Codex / OpenCode 用 `--base-url`（一般要带到 `/v1`）
+- Codex / OpenCode / Grok Build 用 `--base-url`（一般要带到 `/v1`）
 - Claude Code 用 `--anthropic-url`（不要带末尾 `/v1`，Claude Code 会自己拼 `/v1/messages`；带了 msw 写入时也会去掉）
 - `--models` 填上游真实模型名，逗号分隔，第一项是默认模型
 - 同一家中转要给 Claude 和 Codex 用，请分别添加两次，不要写两个地址到同一条供应商
@@ -118,7 +118,7 @@ msw provider rm-model local grok-4.6
 ## 切换
 
 ```bash
-msw agent codex        # claude | codex | gemini | opencode
+msw agent codex        # claude | codex | grok-build | gemini | opencode
 msw use local          # 切到刚加的供应商
 msw ping local         # 可选，通过 Agent SDK 测通，会消耗少量 Token
 msw status
@@ -135,7 +135,7 @@ msw model grok-4.6     # 当前 Agent 换模型
 切完后**新开终端**再启动：
 
 ```bash
-codex      # 或 claude / gemini / opencode
+claude     # 或 codex / grok / gemini / opencode
 ```
 
 Codex 里用 `/model` 切换该渠道下的模型。Claude Code 的 `/model` 只认 `sonnet` / `opus` / `haiku`；msw 会把界面模型写成这些别名，再用 `ANTHROPIC_DEFAULT_*_MODEL` 映射到上游真实模型名。不要在 Claude 里手动选自定义名。思考强度、权限等其它配置会保留。
@@ -155,8 +155,9 @@ msw ping local
 msw ping packy --agent claude
 ```
 
-- Codex：`codex exec`
 - Claude：`claude -p`（print / SDK 模式）
+- Codex：`codex exec`
+- Grok Build：`grok -p`
 - Gemini：`gemini -p`
 - OpenCode：`opencode run`
 
@@ -180,8 +181,9 @@ msw provider select-model local gpt-5.6-sol
 
 工具栏 **查看 Codex 配置**（随顶部选中的 Agent 变化）会直接打开该 Agent 的配置文件，例如：
 
-- Codex：`~/.codex/config.toml`
 - Claude Code：`~/.claude/settings.json`
+- Codex：`~/.codex/config.toml`
+- Grok Build：`~/.grok/config.toml`
 - Gemini：`~/.gemini/.env`
 - OpenCode：`~/.config/opencode/opencode.json`
 

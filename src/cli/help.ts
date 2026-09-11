@@ -6,13 +6,13 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw ls [providers|agents|models|mcp]
   msw providers               显示所有供应商
   msw use <target>            切换供应商 / 模型
-  msw agent <claude|codex|gemini|opencode>
+  msw agent <claude|codex|grok-build|gemini|opencode>
   msw model <id>              只切当前 Agent 的模型
   msw run [agent] [--use x] [-- extra]
   msw provider ls             显示所有供应商
   msw provider rm <名称>      删除供应商
-  msw provider add <preset> --key <api-key> --agent <claude|codex>
-  msw provider add custom --name <名> --agent <claude|codex> --base-url <url> --key <key> --models <id>
+  msw provider add <preset> --key <api-key> --agent <claude|codex|grok-build|gemini|opencode>
+  msw provider add custom --name <名> --agent <claude|codex|grok-build|gemini|opencode> --base-url <url> --key <key> --models <id>
   msw provider add-model|rm-model|select-model <名> <模型>
   msw provider set-key|ping|presets
   msw mcp add --name <n> --command <cmd>
@@ -40,7 +40,7 @@ export const HELP_CUSTOM = `完全自定义中转
 把中转站配成一个 Provider，然后 msw use <名字> 切换。
 至少要有：名字、Key、地址、模型。
 
-供应商按 Agent 隔离：一次只创建 Claude 或 Codex，不再把两个地址写进同一条供应商。
+供应商按 Agent 隔离：一次只创建一个 Agent 的供应商，不再把两个地址写进同一条供应商。
 同一家中转要两边用，就分别加两次。
 
 ────────────────────────────────
@@ -61,6 +61,22 @@ Codex 新版本只认 wire_api = responses，chat 会在切换时自动改掉。
 密钥写在该供应商自己的 [model_providers] 段里（和 OpenCode 一样），不改全局 auth.json。
 
 ────────────────────────────────
+只给 Grok Build 用
+────────────────────────────────
+  msw provider add custom \
+    --name local \
+    --key sk-xxx \
+    --agent grok-build \
+    --base-url http://127.0.0.1:8000/v1 \
+    --wire-api responses \
+    --models grok-4.6
+
+  msw use grok-build:local
+
+Grok Build 写入 ~/.grok/config.toml 的 [model."<id>"]，api_backend 对应 responses / chat_completions。
+--base-url 一般要带到 /v1。密钥写在该模型段的 api_key 里。
+
+────────────────────────────────
 只给 Claude Code
 ────────────────────────────────
   msw provider add custom \\
@@ -78,10 +94,10 @@ Claude 的 /model 只认 sonnet / opus / haiku；msw 会把真实模型名映射
 ────────────────────────────────
 常用参数
 ────────────────────────────────
-  --agent           claude | codex | gemini | opencode；不填则用当前 Agent
+  --agent           claude | codex | grok-build | gemini | opencode；不填则用当前 Agent
   --name            名字，之后 msw use <name>
   --key             API Key
-  --base-url        OpenAI 兼容地址（Codex / OpenCode）
+  --base-url        OpenAI 兼容地址（Codex / OpenCode / Grok Build）
   --anthropic-url   Anthropic 兼容地址（Claude Code）
   --gemini-url      Gemini 地址
   --wire-api        现已固定为 responses（Codex 不再支持 chat）
