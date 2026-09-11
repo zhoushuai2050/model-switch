@@ -41,6 +41,11 @@ if (logPath) {
   }
 }
 
+if (args.includes('--version') || args[0] === '-v') {
+  console.log(process.env.MSW_AGENT_VERSION || '1.0.0');
+  process.exit(0);
+}
+
 if (process.env.MSW_PROBE_FAIL === 'auth') {
   console.error('Error: 401 invalid_api_key');
   process.exit(1);

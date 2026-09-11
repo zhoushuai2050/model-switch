@@ -3,6 +3,7 @@ import './core/silence-sqlite-warning.ts';
 import { engine, EngineError } from './core/engine.ts';
 import { HELP, HELP_CUSTOM } from './cli/help.ts';
 import { selfUpdate, updateNpmArgs, resolveNpm } from './cli/update.ts';
+import { runAgentNpmInstall } from './core/agent-install.ts';
 import { flag, flagList, parseArgv } from './cli/parse.ts';
 import { color, printProviders, printStatus, printSwitch } from './cli/format.ts';
 import { runTui } from './cli/tui.ts';
@@ -49,9 +50,14 @@ async function dispatch(): Promise<void> {
       return;
     }
     case 'agent': {
-      if (!args.args[0]) throw new EngineError(`Usage: msw agent <${AGENT_CHOICES}>`);
-      engine.setAgent(args.args[0]);
-      console.log(`current agent: ${args.args[0]}`);
+      const sub = args.args[0];
+      if (sub === 'install' || sub === 'update') {
+        await agentInstallCommand(sub, args.args[1]);
+        return;
+      }
+      if (!sub) throw new EngineError(`Usage: msw agent <${AGENT_CHOICES}|install|update>`);
+      engine.setAgent(sub);
+      console.log(`current agent: ${sub}`);
       return;
     }
     case 'model': {
@@ -269,6 +275,33 @@ function mcpCommand(): void {
   throw new EngineError('Usage: msw mcp ls|add|sync');
 }
 
+async function agentInstallCommand(action: 'install' | 'update', agentId?: string): Promise<void> {
+  const id = agentId || engine.status().state.currentAgent;
+  if (!id) throw new EngineError(`Usage: msw agent ${action} <${AGENT_CHOICES}>`);
+  const info = await engine.agentInstallInfo(id);
+  if (action === 'update' && !info.installed) {
+    throw new EngineError(`${info.name} 未安装。先运行 msw agent install ${info.id}`);
+  }
+  if (action === 'install' && info.installed && !info.outdated) {
+    console.log(`${info.name} 已安装 ${info.version || info.bin || ''}`.trim());
+    if (info.latest) console.log(color.dim(`最新版本 ${info.latest}`));
+    return;
+  }
+  const label = info.installed ? 'Updating' : 'Installing';
+  console.log(color.bold(`${label} ${info.name}`));
+  console.log(color.dim(`npm i -g ${info.npmPackage}`));
+  const result = await runAgentNpmInstall(info.npmPackage, { inherit: true });
+  if (result.code !== 0) throw new EngineError(`${info.name} ${info.installed ? '更新' : '安装'}失败 (exit ${result.code})`);
+  const after = await engine.agentInstallInfo(id);
+  if (!after.installed) {
+    throw new EngineError('安装命令已完成，但 PATH 里还没有找到可执行文件。新开终端或执行 hash -r 后再试。');
+  }
+  console.log(color.green(`${after.name} ${after.version ? `已就绪 ${after.version}` : '已就绪'}`));
+  if (process.platform !== 'win32') {
+    console.log(color.dim('如果命令还是找不到，先执行 hash -r'));
+  }
+}
+
 function doctor(): void {
   const status = engine.status();
   console.log(`db     ${color.green('ok')}`);
@@ -276,6 +309,7 @@ function doctor(): void {
     const bin = agent.installed ? color.green(agent.bin || 'yes') : color.dim('missing');
     const cfg = agent.configured ? color.green('config') : color.dim('no-config');
     console.log(`${agent.id.padEnd(11)} ${bin}  ${cfg}  ${agent.model || ''}`);
+    if (!agent.installed) console.log(color.dim(`           msw agent install ${agent.id}`));
   }
   if (!engine.listProviders().length) console.log(color.dim('hint: msw provider add kimi --key sk-... --agent claude'));
 }

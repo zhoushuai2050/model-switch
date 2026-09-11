@@ -56,6 +56,27 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
     const body = await readBody(req);
     return send(res, 200, engine.saveAgentConfig(id, String(body.content ?? '')));
   }
+  if (req.method === 'GET' && path.startsWith('/api/agents/') && path.endsWith('/install')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    return send(res, 200, await engine.agentInstallInfo(id));
+  }
+  if (req.method === 'POST' && path.startsWith('/api/agents/') && path.endsWith('/install')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    res.writeHead(200, {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    try {
+      for await (const step of engine.installAgent(id)) {
+        res.write(`${JSON.stringify(step)}\n`);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      res.write(`${JSON.stringify({ id: 'summary', title: '安装失败', status: 'fail', detail })}\n`);
+    }
+    res.end();
+    return;
+  }
   if (req.method === 'GET' && path === '/api/providers') return send(res, 200, engine.listProviders());
   if (req.method === 'GET' && path.startsWith('/api/providers/')) {
     const id = decodeURIComponent(path.split('/')[3] || '');

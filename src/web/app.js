@@ -40,9 +40,13 @@ const state = {
   presets: [],
   models: [],
   mcp: [],
+  install: null,
+  installing: false,
   theme: localStorage.getItem('msw-theme') || 'midnight',
   lang: detectLang(),
 };
+
+let installReq = 0;
 
 setLang(state.lang, false);
 
@@ -301,8 +305,10 @@ async function refresh() {
   state.models = models;
   state.mcp = mcp;
   if (!APPS.some((app) => app.id === state.app)) state.app = status.state?.currentAgent || 'codex';
+  if (state.install && state.install.id !== state.app) state.install = null;
   render();
   syncOpenModelEditor();
+  loadInstallInfo();
 }
 
 function syncOpenModelEditor() {
@@ -316,7 +322,8 @@ function renderSwitcher() {
   $('#app-switcher').innerHTML = APPS.map((app) => {
     const live = state.status?.agents?.find((item) => item.id === app.id);
     const extra = live?.installed ? '' : t('status.notInstalled');
-    return `<button type="button" data-app="${app.id}" class="${state.app === app.id ? 'active' : ''}" title="${app.name}${extra ? ` (${extra})` : ''}">
+    const cls = [state.app === app.id ? 'active' : '', live && !live.installed ? 'missing' : ''].filter(Boolean).join(' ');
+    return `<button type="button" data-app="${app.id}" class="${cls}" title="${app.name}${extra ? ` (${extra})` : ''}">
       <span class="glyph ${app.id}">${app.name.slice(0, 1)}</span>${app.name}
     </button>`;
   }).join('');
@@ -324,12 +331,14 @@ function renderSwitcher() {
 
 function renderStatus() {
   const live = agent();
+  const info = installInfo();
   const on = Boolean(live?.installed && live?.configured);
   const available = state.providers.filter((item) => supportsAgent(item)).length;
   $('#status-chip').innerHTML = `<span class="dot ${on ? 'on' : 'off'}"></span>
     <b>${live?.name || appName()}</b>
     <span>${live?.model || t('status.unconfigured')}</span>
     <span>${live?.providerLabel || live?.bin || (live?.installed ? t('status.installed') : t('status.notInstalled'))}</span>
+    ${info?.version ? `<span>${escapeHtml(info.version)}</span>` : ''}
     <span>${t('status.available', { n: available })}</span>`;
   const configLabel = $('#btn-config-label');
   if (configLabel) configLabel.textContent = t('nav.viewConfigApp', { app: appName() });
@@ -337,6 +346,134 @@ function renderStatus() {
   if (configButton) configButton.title = t('nav.viewConfigApp', { app: appName() });
   const addLabel = $('#btn-add-label');
   if (addLabel) addLabel.textContent = t('nav.addProviderApp', { app: appName() });
+  renderInstallAction();
+}
+
+function installInfo() {
+  if (state.install && state.install.id === state.app) return state.install;
+  const live = agent();
+  if (live && !live.installed) {
+    return { id: state.app, name: live.name || appName(), installed: false, action: 'install' };
+  }
+  return null;
+}
+
+function installButtonHtml(info) {
+  if (state.installing) {
+    return `<button class="btn" data-agent-install type="button" disabled>${t('agent.working')}</button>`;
+  }
+  if (!info || info.action === 'none') return '';
+  const primary = info.action === 'install' ? ' primary' : '';
+  const label = info.action === 'install'
+    ? (info.latest ? t('agent.installVersion', { app: appName(), version: info.latest }) : t('agent.install', { app: appName() }))
+    : t('agent.updateTo', { version: info.latest });
+  const icon = info.action === 'install'
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.4M20 5v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return `<button class="btn${primary}" data-agent-install type="button">${icon}<span>${label}</span></button>`;
+}
+
+function renderInstallAction() {
+  const host = $('#agent-install-action');
+  const banner = $('#agent-install-banner');
+  const info = installInfo();
+  const onProviders = state.view === 'providers';
+  if (host) host.innerHTML = onProviders ? installButtonHtml(info) : '';
+  if (!banner) return;
+  if (!onProviders || !info || (info.action === 'none' && !state.installing)) {
+    banner.classList.add('hidden');
+    banner.innerHTML = '';
+    return;
+  }
+  const updating = info.action === 'update';
+  const title = updating
+    ? t('agent.needUpdateTitle', { app: appName() })
+    : t('agent.needInstallTitle', { app: appName() });
+  const detail = updating
+    ? t('agent.needUpdateDetail', { version: info.version || '?', latest: info.latest || '?' })
+    : t('agent.needInstallDetail', { app: appName() });
+  banner.classList.remove('hidden');
+  banner.innerHTML = `<div class="install-banner${updating ? ' update' : ''}">
+    <div>
+      <strong>${title}</strong>
+      <p>${detail}</p>
+    </div>
+    ${installButtonHtml(info)}
+  </div>`;
+}
+
+async function loadInstallInfo() {
+  const req = ++installReq;
+  const app = state.app;
+  try {
+    const info = await api(`/api/agents/${encodeURIComponent(app)}/install`);
+    if (req !== installReq || state.app !== app) return;
+    state.install = info;
+    renderStatus();
+  } catch (error) {
+    if (req !== installReq || state.app !== app) return;
+    if (!agent()?.installed) return;
+    toast(error.message || String(error), true);
+  }
+}
+
+async function openInstallModal() {
+  if (state.installing) return;
+  const info = installInfo();
+  if (!info || info.action === 'none') return;
+  const updating = info.action === 'update';
+  state.installing = true;
+  renderInstallAction();
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML = `<div class="dialog install-dialog">
+    <h2>${updating ? t('agent.updateTitle', { app: appName() }) : t('agent.installTitle', { app: appName() })}</h2>
+    <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">${updating ? t('agent.updateStart') : t('agent.installStart')}</div></div></div></div>
+    <div class="dialog-actions">
+      <button class="btn" type="button" id="btn-cancel">${t('action.close')}</button>
+    </div>
+  </div>`;
+  const list = $('#probe-list');
+  const steps = new Map();
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(state.app)}/install`, { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(data.error || res.statusText);
+    }
+    if (!res.body) throw new Error(updating ? t('agent.updateFail') : t('agent.installFail'));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const step = JSON.parse(line);
+        steps.set(step.id, step);
+        if (list) list.innerHTML = renderProbe(steps);
+      }
+    }
+    if (buf.trim()) {
+      const step = JSON.parse(buf);
+      steps.set(step.id, step);
+      if (list) list.innerHTML = renderProbe(steps);
+    }
+    const summary = [...steps.values()].find((item) => item.id === 'summary');
+    const failed = summary?.status === 'fail';
+    toast(
+      summary?.title || (failed
+        ? (updating ? t('agent.updateFail') : t('agent.installFail'))
+        : (updating ? t('agent.updateDone', { app: appName() }) : t('agent.installDone', { app: appName() }))),
+      failed,
+    );
+  } finally {
+    state.installing = false;
+    await refresh().catch((error) => toast(error.message || String(error), true));
+  }
 }
 
 function renderCardModels(provider) {
@@ -439,6 +576,7 @@ function render() {
   $('#view-mcp').classList.toggle('hidden', state.view !== 'mcp');
   if (state.view === 'providers') renderProviders();
   if (state.view === 'mcp') renderMcp();
+  renderInstallAction();
 }
 
 function escapeHtml(value) {
@@ -525,13 +663,13 @@ async function openPingModal(providerId) {
       if (!line.trim()) continue;
       const step = JSON.parse(line);
       steps.set(step.id, step);
-      list.innerHTML = renderProbe(steps);
+      if (list) list.innerHTML = renderProbe(steps);
     }
   }
   if (buf.trim()) {
     const step = JSON.parse(buf);
     steps.set(step.id, step);
-    list.innerHTML = renderProbe(steps);
+    if (list) list.innerHTML = renderProbe(steps);
   }
   const summary = [...steps.values()].find((item) => item.id === 'summary');
   if (summary) toast(summary.title || (summary.status === 'fail' ? t('ping.fail') : t('ping.done')), summary.status === 'fail');
@@ -700,7 +838,7 @@ document.body.addEventListener('input', (event) => {
 document.body.addEventListener('click', async (event) => {
   const target = event.target.closest('button, [data-app], [data-view]');
   if (!target) {
-    if (event.target.id === 'modal' && !$('#add-provider, #edit-provider, #agent-config-form, .config-dialog')) closeModal();
+    if (event.target.id === 'modal' && !$('#add-provider, #edit-provider, #agent-config-form, .config-dialog, .install-dialog')) closeModal();
     if (event.target.id === 'model-modal') closeModelModal();
     if (!event.target.closest('#dock')) closeDockMenus();
     return;
@@ -736,10 +874,15 @@ document.body.addEventListener('click', async (event) => {
     openAgentConfigModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
+  if (target.closest('[data-agent-install]')) {
+    openInstallModal().catch((error) => toast(error.message || String(error), true));
+    return;
+  }
   if (target.dataset.app) {
     state.app = target.dataset.app;
     localStorage.setItem('msw-app', state.app);
     state.view = 'providers';
+    state.install = null;
     try {
       await api('/api/agent', { method: 'POST', body: { agentId: state.app } });
     } catch (error) {

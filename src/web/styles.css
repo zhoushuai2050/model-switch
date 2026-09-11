@@ -272,6 +272,7 @@ button { cursor: pointer; }
   background: var(--card); color: var(--ink);
   box-shadow: 0 1px 0 var(--hover-bg), 0 6px 16px rgba(0,0,0,0.18);
 }
+.switcher button.missing { opacity: 0.72; }
 .glyph {
   width: 18px; height: 18px; border-radius: 5px;
   display: grid; place-items: center;
@@ -279,7 +280,7 @@ button { cursor: pointer; }
 }
 .glyph.claude { background: #d97757; }
 .glyph.codex { background: #10a37f; }
-.glyph.grok-build { background: #f4f4f5; color: #111; }
+.glyph.grok-build { background: #44403c; }
 .glyph.gemini { background: #4f8cff; }
 .glyph.opencode { background: #fb923c; }
 
@@ -509,6 +510,25 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-sof
 .form-tip { margin: -4px 0 12px; color: var(--muted); font-size: 12px; }
 
 .toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+#agent-install-action:empty { display: none; }
+
+.install-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--primary-soft);
+}
+.install-banner.update { background: var(--hover-bg); }
+.install-banner strong { display: block; color: var(--ink); font-size: 13px; }
+.install-banner p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+@media (max-width: 860px) {
+  .install-banner { flex-direction: column; align-items: stretch; }
+}
 
 .config-loading { color: var(--muted); padding: 18px 0 8px; }
 .config-dialog { width: min(900px, 100%); }

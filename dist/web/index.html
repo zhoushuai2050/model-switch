@@ -37,6 +37,7 @@
         <div class="toolbar">
           <div class="status-chip" id="status-chip">加载中…</div>
           <div class="toolbar-actions">
+            <span id="agent-install-action"></span>
             <button class="btn" id="btn-agent-config" type="button">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" stroke="currentColor" stroke-width="1.7"/><path d="M7 8h10M7 12h7M7 16h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
               <span id="btn-config-label">查看配置</span>
@@ -47,6 +48,7 @@
             </label>
           </div>
         </div>
+        <div id="agent-install-banner" class="hidden"></div>
         <section class="view" id="view-providers"></section>
         <section class="view hidden" id="view-mcp"></section>
       </main>

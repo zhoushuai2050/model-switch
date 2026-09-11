@@ -7,6 +7,7 @@ import { atomicWrite, backupFiles, readText } from "./fsutil.js";
 import { getPreset, PRESETS } from "./presets.js";
 import { withPathEnv } from "./paths.js";
 import { buildChildEnv, classifyProbe, cleanupPingDirs, commandLine, createPingDirs, isProbeTestStep, PING_TIMEOUT_MS, randomPingPrompt, runCommand, } from "./probe.js";
+import { collectAgentInstallInfo, installAgentSteps, } from "./agent-install.js";
 import { AGENT_CHOICES, AGENT_IDS, isAgentId, now, liveProviderKey, slug, } from "./types.js";
 export class EngineError extends Error {
     constructor(message) {
@@ -245,6 +246,12 @@ export class Engine {
         const backup = backupFiles(current.agentId, [current.path]);
         atomicWrite(current.path, content);
         return { ...this.getAgentConfig(current.agentId), backup };
+    }
+    agentInstallInfo(agentId) {
+        return collectAgentInstallInfo(requireAgent(agentId));
+    }
+    async *installAgent(agentId) {
+        yield* installAgentSteps(requireAgent(agentId));
     }
     use(target, opts = {}) {
         const fallback = opts.agent && isAgentId(opts.agent) ? opts.agent : db.getState().currentAgent;

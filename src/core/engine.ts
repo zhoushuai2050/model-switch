@@ -19,6 +19,11 @@ import {
   runCommand,
 } from './probe.ts';
 import {
+  collectAgentInstallInfo,
+  installAgentSteps,
+  type AgentInstallInfo,
+} from './agent-install.ts';
+import {
   AGENT_CHOICES,
   AGENT_IDS,
   isAgentId,
@@ -321,6 +326,14 @@ export class Engine {
     const backup = backupFiles(current.agentId, [current.path]);
     atomicWrite(current.path, content);
     return { ...this.getAgentConfig(current.agentId), backup };
+  }
+
+  agentInstallInfo(agentId: string): Promise<AgentInstallInfo> {
+    return collectAgentInstallInfo(requireAgent(agentId));
+  }
+
+  async *installAgent(agentId: string): AsyncGenerator<PingStep> {
+    yield* installAgentSteps(requireAgent(agentId));
   }
 
   use(target: string, opts: { agent?: string; scope?: 'global' | 'session' } = {}): SwitchResult {

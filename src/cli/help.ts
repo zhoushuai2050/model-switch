@@ -7,6 +7,8 @@ export const HELP = `Model Switch — 各种 Agent / 模型的本机切换器
   msw providers               显示所有供应商
   msw use <target>            切换供应商 / 模型
   msw agent <claude|codex|grok-build|gemini|opencode>
+  msw agent install [agent]   安装 Agent（npm 全局包）
+  msw agent update [agent]    更新到 npm 最新版
   msw model <id>              只切当前 Agent 的模型
   msw run [agent] [--use x] [-- extra]
   msw provider ls             显示所有供应商
