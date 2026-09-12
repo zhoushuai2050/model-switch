@@ -148,10 +148,18 @@ export const grokBuildAdapter = {
                 '-m',
                 payload.model,
                 '--always-approve',
+                // Grok's read-only sandbox uses bubblewrap and can fail on Linux hosts
+                // with "Can't create file at /run/containerd/containerd.sock".
                 '--sandbox',
-                'read-only',
+                'off',
+                '--max-turns',
+                '1',
+                '--disable-web-search',
             ],
-            env: envFromProvider(payload.provider, payload.model),
+            env: {
+                ...envFromProvider(payload.provider, payload.model),
+                GROK_SANDBOX: 'off',
+            },
             pathEnv: { GROK_HOME: isolatedHome },
         };
     },
@@ -165,8 +173,8 @@ export const grokBuildAdapter = {
             const error = asRecord(root.error);
             if (error)
                 return { error: asString(error.message) || asString(root.error) || 'Grok Build 报错' };
-            if (root.is_error === true || root.ok === false) {
-                return { error: asString(root.result) || asString(root.message) || 'Grok Build 报错' };
+            if (asString(root.type) === 'error' || root.is_error === true || root.ok === false) {
+                return { error: asString(root.message) || asString(root.result) || asString(root.error) || 'Grok Build 报错' };
             }
             const reply = asString(root.result) ||
                 asString(root.text) ||

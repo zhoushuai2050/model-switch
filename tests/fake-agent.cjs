@@ -33,6 +33,7 @@ if (logPath) {
         GROK_HOME: process.env.GROK_HOME,
         GROK_DEFAULT_MODEL: process.env.GROK_DEFAULT_MODEL,
         GROK_XAI_API_BASE_URL: process.env.GROK_XAI_API_BASE_URL,
+        GROK_SANDBOX: process.env.GROK_SANDBOX,
         XAI_API_KEY: process.env.XAI_API_KEY,
       },
     }));

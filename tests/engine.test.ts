@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, test } from 'node:test';
+import { grokBuildAdapter } from '../src/adapters/grok-build.ts';
 import { resetDbCache } from '../src/core/db.ts';
 import { Engine } from '../src/core/engine.ts';
 
@@ -907,7 +908,23 @@ test('ping grok-build uses grok -p and does not mutate live config', async () =>
   assert.ok(log.argv.includes('-p'));
   assert.ok(log.argv.includes('--output-format'));
   assert.ok(log.argv.includes('grok-4.6'));
+  assert.equal(log.argv[log.argv.indexOf('--sandbox') + 1], 'off');
+  assert.ok(!log.argv.includes('read-only'));
+  assert.equal(log.argv[log.argv.indexOf('--max-turns') + 1], '1');
+  assert.ok(log.argv.includes('--disable-web-search'));
   assert.equal(log.env.XAI_API_KEY, 'sk-x');
   assert.equal(log.env.GROK_DEFAULT_MODEL, 'grok-4.6');
+  assert.equal(log.env.GROK_SANDBOX, 'off');
   assert.equal(readFileSync(join(root, '.grok', 'config.toml'), 'utf8'), 'default = "keep-me"\n');
+});
+
+test('grok-build parseProbe treats type=error as failure', () => {
+  const parsed = grokBuildAdapter.parseProbe({
+    stdout: JSON.stringify({ type: 'error', message: 'Not signed in' }),
+    stderr: '',
+    code: 0,
+    timedOut: false,
+  });
+  assert.equal(parsed.reply, undefined);
+  assert.equal(parsed.error, 'Not signed in');
 });
