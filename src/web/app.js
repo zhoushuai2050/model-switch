@@ -502,6 +502,7 @@ async function openAgentPackageModal() {
 async function runAgentPackageJob(kind, version) {
   if (state.installing) return;
   const uninstalling = kind === 'uninstall';
+  let reload = false;
   state.installing = true;
   state.packageJob = kind;
   renderInstallAction();
@@ -552,7 +553,7 @@ async function runAgentPackageJob(kind, version) {
       if (list) list.innerHTML = renderProbe(steps);
     }
     const summary = [...steps.values()].find((item) => item.id === 'summary');
-    const failed = summary?.status === 'fail';
+    const failed = !summary || summary.status === 'fail';
     settleProbeSteps(steps, failed);
     if (list) list.innerHTML = renderProbe(steps);
     toast(
@@ -561,9 +562,14 @@ async function runAgentPackageJob(kind, version) {
         : (uninstalling ? t('agent.uninstallDone', { app: appName() }) : t('agent.installDone', { app: appName() }))),
       failed,
     );
+    if (!failed) reload = true;
   } finally {
     state.installing = false;
     state.packageJob = '';
+    if (reload) {
+      location.reload();
+      return;
+    }
     await refresh().catch((error) => toast(error.message || String(error), true));
   }
 }
