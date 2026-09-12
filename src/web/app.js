@@ -382,6 +382,10 @@ function installInfo() {
   return installInfoFor(state.app);
 }
 
+function agentNeedsUpdate(info) {
+  return Boolean(info && (info.action === 'update' || info.outdated));
+}
+
 function agentActionButtonsHtml(info) {
   if (state.installing) {
     const label = state.packageJob === 'uninstall' ? t('agent.uninstalling') : t('agent.working');
@@ -391,10 +395,9 @@ function agentActionButtonsHtml(info) {
   if (!info.installed) {
     return `<button class="btn primary" data-agent-install type="button">${installIcon()}<span>${t('action.install')}</span></button>`;
   }
-  const update = info.action === 'update' || info.outdated
-    ? `<button class="btn" data-agent-manage type="button">${t('agent.manage')}</button>`
-    : '';
-  return `<button class="btn danger" data-agent-uninstall type="button">${t('agent.uninstall')}</button>${update}`;
+  const manage = agentNeedsUpdate(info) ? t('agent.manageUpdate') : t('agent.manage');
+  return `<button class="btn danger" data-agent-uninstall type="button">${t('agent.uninstall')}</button>
+    <button class="btn" data-agent-manage type="button">${manage}</button>`;
 }
 
 function installIcon() {
@@ -482,7 +485,7 @@ async function openAgentPackageModal() {
   const installed = Boolean(info.installed);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog install-dialog">
-    <h2>${installed ? t('agent.manageTitle') : t('agent.installTitle', { app: appName() })}</h2>
+    <h2>${installed ? (agentNeedsUpdate(info) ? t('agent.manageUpdateTitle') : t('agent.manageTitle')) : t('agent.installTitle', { app: appName() })}</h2>
     <p class="form-tip">${t('agent.versionLoading')}</p>
   </div>`;
   let pack = {
@@ -517,7 +520,7 @@ async function openAgentPackageModal() {
     ? (selected && !sameNpmVersion(selected, current) ? t('agent.installThis') : t('agent.reinstall'))
     : t('action.install');
   $('#modal').innerHTML = `<div class="dialog install-dialog">
-    <h2>${installed ? t('agent.manageTitle') : t('agent.installTitle', { app: appName() })}</h2>
+    <h2>${installed ? (agentNeedsUpdate(info) ? t('agent.manageUpdateTitle') : t('agent.manageTitle')) : t('agent.installTitle', { app: appName() })}</h2>
     <p class="install-status">${status}</p>
     ${errorTip}
     <form id="agent-package-form">
