@@ -391,8 +391,10 @@ function agentActionButtonsHtml(info) {
   if (!info.installed) {
     return `<button class="btn primary" data-agent-install type="button">${installIcon()}<span>${t('action.install')}</span></button>`;
   }
-  return `<button class="btn danger" data-agent-uninstall type="button">${t('agent.uninstall')}</button>
-    <button class="btn" data-agent-manage type="button">${t('agent.manage')}</button>`;
+  const update = info.action === 'update' || info.outdated
+    ? `<button class="btn" data-agent-manage type="button">${t('agent.manage')}</button>`
+    : '';
+  return `<button class="btn danger" data-agent-uninstall type="button">${t('agent.uninstall')}</button>${update}`;
 }
 
 function installIcon() {
@@ -433,11 +435,38 @@ async function loadInstallInfo() {
   }
 }
 
-function versionOptionLabel(version, pack) {
+function normalizeNpmVersion(value) {
+  return String(value || '').trim().replace(/^v/i, '');
+}
+
+function sameNpmVersion(a, b) {
+  const left = normalizeNpmVersion(a);
+  const right = normalizeNpmVersion(b);
+  return Boolean(left) && left === right;
+}
+
+function withCurrentVersion(versions, current) {
+  const list = [...versions];
+  if (current && !list.some((item) => sameNpmVersion(item, current))) {
+    list.splice(Math.min(1, list.length), 0, current);
+  }
+  return list.filter((item, index) => list.findIndex((other) => sameNpmVersion(other, item)) === index).slice(0, 10);
+}
+
+function versionRowHtml(version, opts) {
+  const current = sameNpmVersion(version, opts.current);
+  const latest = sameNpmVersion(version, opts.latest);
+  const picked = sameNpmVersion(version, opts.selected);
   const tags = [];
-  if (pack?.current && version === pack.current) tags.push(t('agent.versionCurrent'));
-  if (pack?.latest && version === pack.latest) tags.push(t('agent.versionLatest'));
-  return tags.length ? `${version} (${tags.join(' / ')})` : version;
+  if (current) tags.push(`<span class="version-tag current">${t('agent.versionCurrent')}</span>`);
+  if (latest) tags.push(`<span class="version-tag latest">${t('agent.versionLatest')}</span>`);
+  const cls = ['version-row'];
+  if (picked) cls.push('picked');
+  if (current) cls.push('current');
+  return `<button type="button" class="${cls.join(' ')}" data-version-pick="${escapeHtml(version)}" role="option" aria-pressed="${picked}" ${current ? 'aria-current="true"' : ''}>
+    <span class="version-id">${escapeHtml(version)}</span>
+    <span class="version-tags">${tags.join('')}</span>
+  </button>`;
 }
 
 async function openAgentPackageModal() {
@@ -466,31 +495,36 @@ async function openAgentPackageModal() {
   } catch (error) {
     if (!pack.versions.length) toast(error.message || String(error), true);
   }
-  const versions = (pack.versions?.length ? pack.versions : (pack.latest ? [pack.latest] : [])).slice(0, 10);
+  const current = info.version || pack.current || '';
+  const latest = pack.latest || info.latest || '';
+  const versions = withCurrentVersion(pack.versions?.length ? pack.versions : (latest ? [latest] : []), current);
   const selected = info.action === 'update'
-    ? (pack.latest || versions[0] || '')
-    : (info.version || pack.latest || versions[0] || '');
-  const options = (versions.length ? versions : ['']).map((version) => {
-    const value = version || '';
-    const label = value ? versionOptionLabel(value, pack) : t('agent.versionLatest');
-    return `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-  }).join('');
+    ? (latest || versions[0] || '')
+    : (current || latest || versions[0] || '');
+  const rows = versions.length
+    ? versions.map((version) => versionRowHtml(version, { current, latest, selected })).join('')
+    : `<div class="form-tip">${t('agent.versionLatest')}</div>`;
   const status = installed
     ? t('agent.manageDetail', {
         version: info.version || pack.current || '?',
         latest: pack.latest || info.latest || '?',
       })
     : t('agent.needInstallDetail', { app: appName() });
+  const errorTip = pack.error
+    ? `<p class="form-tip">${escapeHtml(t('agent.versionError', { error: pack.error }))}</p>`
+    : '';
   const installLabel = installed
-    ? (selected && selected !== info.version ? t('agent.installThis') : t('agent.reinstall'))
+    ? (selected && !sameNpmVersion(selected, current) ? t('agent.installThis') : t('agent.reinstall'))
     : t('action.install');
   $('#modal').innerHTML = `<div class="dialog install-dialog">
     <h2>${installed ? t('agent.manageTitle') : t('agent.installTitle', { app: appName() })}</h2>
     <p class="install-status">${status}</p>
+    ${errorTip}
     <form id="agent-package-form">
-      <label class="field">${t('agent.version')}
-        <select name="version">${options}</select>
-      </label>
+      <div class="field version-field">${t('agent.version')}
+        <input type="hidden" name="version" value="${escapeHtml(selected)}">
+        <div class="version-list" role="listbox" aria-label="${t('agent.version')}">${rows}</div>
+      </div>
       <div class="dialog-actions">
         <button class="btn" type="button" id="btn-cancel">${t('action.cancel')}</button>
         <button class="btn primary" type="submit">${installLabel}</button>
@@ -905,6 +939,27 @@ async function run(action, success) {
   }
 }
 
+function syncAgentPackageSubmit(form, version) {
+  const info = installInfo();
+  const submit = form?.querySelector('button[type="submit"]');
+  if (!submit || !info?.installed) return;
+  submit.textContent = version && !sameNpmVersion(version, info.version) ? t('agent.installThis') : t('agent.reinstall');
+}
+
+function pickAgentPackageVersion(button) {
+  const form = button.closest('#agent-package-form');
+  if (!form) return;
+  const value = button.dataset.versionPick || '';
+  const input = form.querySelector('input[name="version"]');
+  if (input) input.value = value;
+  for (const row of form.querySelectorAll('[data-version-pick]')) {
+    const on = row === button;
+    row.classList.toggle('picked', on);
+    row.setAttribute('aria-pressed', String(on));
+  }
+  syncAgentPackageSubmit(form, value);
+}
+
 function closeDockMenus(except) {
   for (const id of ['theme-menu', 'lang-menu']) {
     if (except && id === except) continue;
@@ -918,10 +973,7 @@ document.body.addEventListener('change', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLSelectElement)) return;
   if (target.form?.id === 'agent-package-form' && target.name === 'version') {
-    const info = installInfo();
-    const submit = target.form.querySelector('button[type="submit"]');
-    if (!submit || !info?.installed) return;
-    submit.textContent = target.value && target.value !== info.version ? t('agent.installThis') : t('agent.reinstall');
+    syncAgentPackageSubmit(target.form, target.value);
     return;
   }
   if (target.name !== 'preset') return;
@@ -978,6 +1030,10 @@ document.body.addEventListener('click', async (event) => {
   if (target.closest('[data-agent-uninstall]')) {
     if (!confirm(t('agent.uninstallConfirm', { app: appName() }))) return;
     runAgentPackageJob('uninstall').catch((error) => toast(error.message || String(error), true));
+    return;
+  }
+  if (target.dataset.versionPick) {
+    pickAgentPackageVersion(target);
     return;
   }
   if (target.closest('[data-agent-manage], [data-agent-install]')) {

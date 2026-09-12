@@ -16,6 +16,7 @@ import {
   isNpmVersion,
   limitAgentVersions,
   parseAgentVersion,
+  selectNpmVersionList,
 } from '../src/core/agent-install.ts';
 
 const fakeAgent = join(dirname(fileURLToPath(import.meta.url)), 'fake-agent.cjs');
@@ -80,6 +81,15 @@ test('limitAgentVersions keeps latest and current within 10 entries', () => {
   assert.equal(limited[0], '1.20.0');
   assert.equal(limited[1], '1.0.0');
   assert.ok(!limited.includes('1.11.0'));
+});
+
+test('selectNpmVersionList prefers stable releases over nightlies', () => {
+  const versions = selectNpmVersionList(
+    ['0.61.0-nightly.1', '0.59.0', '0.58.1', '0.60.0-preview.0', '0.58.0', '0.57.2'],
+    { latest: '0.59.0' },
+  );
+  assert.deepEqual(versions.slice(0, 4), ['0.59.0', '0.58.1', '0.58.0', '0.57.2']);
+  assert.ok(versions.indexOf('0.61.0-nightly.1') > versions.indexOf('0.57.2'));
 });
 
 test('agentInstallAction chooses install, update, or none', () => {

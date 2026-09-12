@@ -72,6 +72,16 @@ export function limitAgentVersions(versions, opts = {}) {
         push(version);
     return out;
 }
+export function isStableNpmVersion(value) {
+    return /^\d+\.\d+\.\d+$/.test(String(value || '').trim());
+}
+export function selectNpmVersionList(versions, opts = {}) {
+    const valid = [...new Set(versions.map((item) => String(item || '').trim()).filter(isNpmVersion))];
+    const bySemver = (a, b) => compareVersions(b, a) || b.localeCompare(a);
+    const stable = valid.filter(isStableNpmVersion).sort(bySemver);
+    const rest = valid.filter((item) => !isStableNpmVersion(item)).sort(bySemver);
+    return limitAgentVersions([...stable, ...rest], opts);
+}
 export async function fetchNpmLatest(npmPackage, timeoutMs = 8000) {
     if (process.env.MSW_NPM_LATEST)
         return process.env.MSW_NPM_LATEST;
@@ -194,7 +204,7 @@ export async function collectAgentVersions(agentId) {
     catch (err) {
         error = err instanceof Error ? err.message : String(err);
     }
-    versions = limitAgentVersions(versions, { current: info.version, latest });
+    versions = selectNpmVersionList(versions, { current: info.version, latest });
     return {
         id: info.id,
         name: info.name,
@@ -205,7 +215,7 @@ export async function collectAgentVersions(agentId) {
         error,
     };
 }
-export async function fetchNpmVersions(npmPackage, timeoutMs = 10000) {
+export async function fetchNpmVersions(npmPackage, timeoutMs = 20000) {
     if (process.env.MSW_NPM_VERSIONS) {
         const versions = JSON.parse(process.env.MSW_NPM_VERSIONS);
         return {
@@ -213,28 +223,48 @@ export async function fetchNpmVersions(npmPackage, timeoutMs = 10000) {
             versions: [...new Set(versions.filter(Boolean))],
         };
     }
-    if (process.env.MSW_NPM_LATEST) {
-        return { latest: process.env.MSW_NPM_LATEST, versions: [process.env.MSW_NPM_LATEST] };
+    try {
+        return await fetchNpmVersionsViaNpm(npmPackage, timeoutMs);
     }
+    catch (npmError) {
+        try {
+            return await fetchNpmVersionsViaRegistry(npmPackage, timeoutMs);
+        }
+        catch {
+            throw npmError;
+        }
+    }
+}
+async function fetchNpmVersionsViaNpm(npmPackage, timeoutMs) {
+    const npm = resolveNpm();
+    const result = await spawnNpm(npm, ['view', npmPackage, 'versions', 'dist-tags', '--json', `--registry=${AGENT_NPM_REGISTRY}`], false, timeoutMs);
+    if (result.code !== 0) {
+        throw new Error(clipInstallLog(result.stderr || result.stdout || `npm view exit ${result.code}`, 300));
+    }
+    return parseNpmViewVersions(result.stdout);
+}
+async function fetchNpmVersionsViaRegistry(npmPackage, timeoutMs) {
     const url = `${AGENT_NPM_REGISTRY.replace(/\/$/, '')}/${encodeNpmPackage(npmPackage)}`;
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), timeoutMs);
     try {
         const res = await fetch(url, {
             signal: ac.signal,
-            headers: { accept: 'application/json' },
+            headers: {
+                accept: 'application/vnd.npm.install-v1+json, application/json',
+                'user-agent': 'model-switch',
+            },
         });
         if (!res.ok)
             throw new Error(`npm registry ${res.status}`);
         const data = (await res.json());
-        const versions = Object.keys(data.versions || {})
-            .filter((item) => isNpmVersion(item))
-            .sort((a, b) => compareVersions(b, a) || b.localeCompare(a));
+        const raw = Array.isArray(data.versions)
+            ? data.versions.map(String)
+            : Object.keys(data.versions || {});
         const latest = data['dist-tags']?.latest && isNpmVersion(data['dist-tags'].latest)
             ? data['dist-tags'].latest
-            : versions[0];
-        const rest = versions.filter((item) => item !== latest);
-        return { latest, versions: [latest, ...rest].filter((item) => Boolean(item)).slice(0, AGENT_VERSION_LIMIT) };
+            : undefined;
+        return { latest, versions: raw };
     }
     catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
@@ -245,6 +275,39 @@ export async function fetchNpmVersions(npmPackage, timeoutMs = 10000) {
     finally {
         clearTimeout(timer);
     }
+}
+function parseNpmViewVersions(stdout) {
+    const trimmed = stdout.trim();
+    if (!trimmed)
+        return { versions: [] };
+    let data;
+    try {
+        data = JSON.parse(trimmed);
+    }
+    catch {
+        throw new Error('npm view returned invalid JSON');
+    }
+    if (Array.isArray(data))
+        return { versions: data.map(String) };
+    if (typeof data === 'string')
+        return { versions: [data] };
+    if (!data || typeof data !== 'object')
+        return { versions: [] };
+    const rec = data;
+    const raw = rec.versions;
+    const versions = Array.isArray(raw)
+        ? raw.map(String)
+        : typeof raw === 'string'
+            ? [raw]
+            : [];
+    const tags = rec['dist-tags'];
+    const latest = tags && typeof tags === 'object'
+        ? String(tags.latest || '')
+        : '';
+    return {
+        latest: latest && isNpmVersion(latest) ? latest : undefined,
+        versions,
+    };
 }
 export async function* installAgentSteps(agentId, version) {
     const info = await collectAgentInstallInfo(agentId);
@@ -366,7 +429,7 @@ function clipInstallLog(text, length = 4000) {
         return trimmed;
     return `…${trimmed.slice(-length)}`;
 }
-function spawnNpm(npm, args, inherit) {
+function spawnNpm(npm, args, inherit, timeoutMs = INSTALL_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         let stdout = '';
         let stderr = '';
@@ -378,8 +441,8 @@ function spawnNpm(npm, args, inherit) {
         });
         const timer = setTimeout(() => {
             child.kill('SIGTERM');
-            finish(1, `npm install timed out (${Math.round(INSTALL_TIMEOUT_MS / 1000)}s)`);
-        }, INSTALL_TIMEOUT_MS);
+            finish(1, `npm timed out (${Math.round(timeoutMs / 1000)}s)`);
+        }, timeoutMs);
         const finish = (code, extraErr = '') => {
             if (settled)
                 return;

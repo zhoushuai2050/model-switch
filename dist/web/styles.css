@@ -508,6 +508,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-sof
 .form-tip { margin: -4px 0 12px; color: var(--muted); font-size: 12px; }
 
 .toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+#agent-install-action { display: inline-flex; align-items: center; gap: 10px; }
 #agent-install-action:empty { display: none; }
 
 .install-banner {
@@ -594,6 +595,59 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-sof
   line-height: 1.55;
 }
 .install-dialog .field { margin-bottom: 16px; }
+.version-field { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
+.version-list {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 2px;
+}
+.version-row {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--control-bg);
+  color: var(--ink);
+  text-align: left;
+}
+.version-row:hover { border-color: var(--line-strong); background: var(--hover-bg); }
+.version-row.picked {
+  border-color: var(--primary-ring);
+  background: var(--primary-soft);
+}
+.version-row.current:not(.picked) {
+  border-color: color-mix(in srgb, var(--green) 55%, var(--line));
+  background: var(--green-soft);
+}
+.version-id { font-family: var(--mono); font-size: 13px; }
+.version-tags { display: inline-flex; gap: 6px; flex: none; }
+.version-tag {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+.version-tag.current {
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+}
+.version-tag.latest {
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-ring);
+}
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
