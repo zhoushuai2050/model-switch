@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { findBinary } from "../adapters/which.js";
 import { getAdapter } from "../adapters/index.js";
@@ -14,8 +14,17 @@ export const AGENT_NPM_PACKAGES = {
     opencode: 'opencode-ai',
 };
 export const INSTALL_TIMEOUT_MS = 8 * 60 * 1000;
-export function agentInstallNpmArgs(npmPackage) {
-    return ['i', '-g', npmPackage, `--registry=${AGENT_NPM_REGISTRY}`];
+export function npmPackageSpec(npmPackage, version) {
+    return version ? `${npmPackage}@${version}` : npmPackage;
+}
+export function agentInstallNpmArgs(npmPackage, version) {
+    return ['i', '-g', npmPackageSpec(npmPackage, version), `--registry=${AGENT_NPM_REGISTRY}`];
+}
+export function agentUninstallNpmArgs(npmPackage) {
+    return ['uninstall', '-g', npmPackage, `--registry=${AGENT_NPM_REGISTRY}`];
+}
+export function isNpmVersion(value) {
+    return /^v?\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.]+)?$/.test(String(value || '').trim());
 }
 export function parseAgentVersion(text) {
     const src = String(text || '');
@@ -118,17 +127,28 @@ export async function collectAgentInstallInfo(agentId) {
     };
 }
 export async function runAgentNpmInstall(npmPackage, opts = {}) {
+    return runAgentNpm(agentInstallNpmArgs(npmPackage, opts.version), opts);
+}
+export async function runAgentNpmUninstall(npmPackage, opts = {}) {
+    return runAgentNpm(agentUninstallNpmArgs(npmPackage), opts);
+}
+async function runAgentNpm(args, opts = {}) {
     const npm = resolveNpm();
-    const args = agentInstallNpmArgs(npmPackage);
     const command = [npm, ...args].join(' ');
     if (process.env.MSW_NPM_STUB) {
         const ok = process.env.MSW_NPM_STUB !== 'fail';
+        if (ok && args[0] === 'uninstall' && process.env.MSW_NPM_STUB_UNLINK) {
+            try {
+                unlinkSync(process.env.MSW_NPM_STUB_UNLINK);
+            }
+            catch { /* test helper */ }
+        }
         return {
             command,
             args,
             npm,
             code: ok ? 0 : 1,
-            stdout: ok ? `added 1 package ${npmPackage}` : '',
+            stdout: ok ? `ok ${args.join(' ')}` : '',
             stderr: ok ? '' : 'stub install failed',
             ms: 1,
         };
@@ -143,14 +163,91 @@ export async function runAgentNpmInstall(npmPackage, opts = {}) {
         ms: Date.now() - started,
     };
 }
-export async function* installAgentSteps(agentId) {
+export async function collectAgentVersions(agentId) {
     const info = await collectAgentInstallInfo(agentId);
-    const updating = info.installed;
-    const title = updating ? `更新 ${info.name}` : `安装 ${info.name}`;
-    yield { id: 'start', title, status: 'running', detail: info.npmPackage };
-    const npmTitle = `npm i -g ${info.npmPackage}`;
+    let versions = [];
+    let latest = info.latest;
+    let error;
+    try {
+        const pack = await fetchNpmVersions(info.npmPackage);
+        versions = pack.versions;
+        latest = pack.latest || latest;
+    }
+    catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+    }
+    if (latest && !versions.includes(latest))
+        versions.unshift(latest);
+    if (info.version && !versions.includes(info.version))
+        versions.unshift(info.version);
+    return {
+        id: info.id,
+        name: info.name,
+        npmPackage: info.npmPackage,
+        current: info.version,
+        latest,
+        versions,
+        error,
+    };
+}
+export async function fetchNpmVersions(npmPackage, timeoutMs = 10000) {
+    if (process.env.MSW_NPM_VERSIONS) {
+        const versions = JSON.parse(process.env.MSW_NPM_VERSIONS);
+        return {
+            latest: process.env.MSW_NPM_LATEST || versions[0],
+            versions: [...new Set(versions.filter(Boolean))],
+        };
+    }
+    if (process.env.MSW_NPM_LATEST) {
+        return { latest: process.env.MSW_NPM_LATEST, versions: [process.env.MSW_NPM_LATEST] };
+    }
+    const url = `${AGENT_NPM_REGISTRY.replace(/\/$/, '')}/${encodeNpmPackage(npmPackage)}`;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, {
+            signal: ac.signal,
+            headers: { accept: 'application/json' },
+        });
+        if (!res.ok)
+            throw new Error(`npm registry ${res.status}`);
+        const data = (await res.json());
+        const versions = Object.keys(data.versions || {})
+            .filter((item) => isNpmVersion(item))
+            .sort((a, b) => compareVersions(b, a) || b.localeCompare(a));
+        const latest = data['dist-tags']?.latest && isNpmVersion(data['dist-tags'].latest)
+            ? data['dist-tags'].latest
+            : versions[0];
+        const rest = versions.filter((item) => item !== latest);
+        return { latest, versions: [latest, ...rest].filter((item) => Boolean(item)).slice(0, 50) };
+    }
+    catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error('npm registry timeout');
+        }
+        throw error;
+    }
+    finally {
+        clearTimeout(timer);
+    }
+}
+export async function* installAgentSteps(agentId, version) {
+    const info = await collectAgentInstallInfo(agentId);
+    const requested = String(version || '').trim();
+    if (requested && !isNpmVersion(requested)) {
+        const detail = `无效版本 ${requested}`;
+        yield { id: 'start', title: `安装 ${info.name}`, status: 'fail', detail };
+        yield { id: 'summary', title: '安装失败', status: 'fail', detail };
+        return;
+    }
+    const spec = npmPackageSpec(info.npmPackage, requested || undefined);
+    const title = requested
+        ? `安装 ${info.name} ${requested}`
+        : (info.installed ? `更新 ${info.name}` : `安装 ${info.name}`);
+    yield { id: 'start', title, status: 'ok', detail: spec };
+    const npmTitle = `npm i -g ${spec}`;
     yield { id: 'npm', title: npmTitle, status: 'running' };
-    const result = await runAgentNpmInstall(info.npmPackage);
+    const result = await runAgentNpmInstall(info.npmPackage, { version: requested || undefined });
     if (result.code !== 0) {
         const detail = clipInstallLog(result.stderr || result.stdout || `exit ${result.code}`);
         yield { id: 'npm', title: npmTitle, status: 'fail', detail, ms: result.ms };
@@ -166,7 +263,7 @@ export async function* installAgentSteps(agentId) {
     };
     const adapter = getAdapter(info.id);
     const detected = adapter.detect();
-    const version = detected.bin ? await readInstalledVersion(detected.bin) : undefined;
+    const installedVersion = detected.bin ? await readInstalledVersion(detected.bin) : undefined;
     if (!detected.installed) {
         const detail = '安装命令已完成，但 PATH 里还没有找到可执行文件。新开一个终端后再试，或执行 hash -r。';
         yield { id: 'detect', title: `检测 ${info.name}`, status: 'fail', detail };
@@ -177,14 +274,52 @@ export async function* installAgentSteps(agentId) {
         id: 'detect',
         title: `检测 ${info.name}`,
         status: 'ok',
-        detail: [detected.bin, version].filter(Boolean).join(' · '),
+        detail: [detected.bin, installedVersion].filter(Boolean).join(' · '),
     };
     yield {
         id: 'summary',
-        title: version ? `${info.name} ${updating ? '已更新到' : '已安装'} ${version}` : `${info.name} ${updating ? '已更新' : '已安装'}`,
+        title: installedVersion
+            ? `${info.name} ${info.installed ? '已更新到' : '已安装'} ${installedVersion}`
+            : `${info.name} ${info.installed ? '已更新' : '已安装'}`,
         status: 'ok',
         detail: detected.bin,
     };
+}
+export async function* uninstallAgentSteps(agentId) {
+    const info = await collectAgentInstallInfo(agentId);
+    const title = `卸载 ${info.name}`;
+    if (!info.installed) {
+        const detail = `${info.name} 未安装`;
+        yield { id: 'start', title, status: 'fail', detail };
+        yield { id: 'summary', title: '卸载失败', status: 'fail', detail };
+        return;
+    }
+    yield { id: 'start', title, status: 'ok', detail: info.npmPackage };
+    const npmTitle = `npm uninstall -g ${info.npmPackage}`;
+    yield { id: 'npm', title: npmTitle, status: 'running' };
+    const result = await runAgentNpmUninstall(info.npmPackage);
+    if (result.code !== 0) {
+        const detail = clipInstallLog(result.stderr || result.stdout || `exit ${result.code}`);
+        yield { id: 'npm', title: npmTitle, status: 'fail', detail, ms: result.ms };
+        yield { id: 'summary', title: `${title}失败`, status: 'fail', detail };
+        return;
+    }
+    yield {
+        id: 'npm',
+        title: npmTitle,
+        status: 'ok',
+        detail: clipInstallLog(result.stdout || result.stderr || 'ok'),
+        ms: result.ms,
+    };
+    const detected = getAdapter(info.id).detect();
+    if (detected.installed) {
+        const detail = `npm 已卸载，但 PATH 里还能找到 ${detected.bin || '可执行文件'}。可能不是通过 npm 全局安装的。`;
+        yield { id: 'detect', title: `检测 ${info.name}`, status: 'warn', detail };
+        yield { id: 'summary', title: `${info.name} 可能仍可用`, status: 'warn', detail };
+        return;
+    }
+    yield { id: 'detect', title: `检测 ${info.name}`, status: 'ok', detail: '未找到可执行文件' };
+    yield { id: 'summary', title: `${info.name} 已卸载`, status: 'ok' };
 }
 function resolveNpm() {
     const sibling = join(dirname(process.execPath), process.platform === 'win32' ? 'npm.cmd' : 'npm');

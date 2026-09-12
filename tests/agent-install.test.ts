@@ -10,7 +10,9 @@ import {
   AGENT_NPM_PACKAGES,
   agentInstallAction,
   agentInstallNpmArgs,
+  agentUninstallNpmArgs,
   compareVersions,
+  isNpmVersion,
   parseAgentVersion,
 } from '../src/core/agent-install.ts';
 
@@ -48,8 +50,10 @@ beforeEach(() => {
 afterEach(() => {
   process.env.PATH = originalPath;
   delete process.env.MSW_NPM_LATEST;
+  delete process.env.MSW_NPM_VERSIONS;
   delete process.env.MSW_AGENT_VERSION;
   delete process.env.MSW_NPM_STUB;
+  delete process.env.MSW_NPM_STUB_UNLINK;
   resetDbCache();
 });
 
@@ -141,6 +145,9 @@ test('installAgent streams npm success without a real npm install', async () => 
   assert.equal(steps.at(-1)?.id, 'summary');
   assert.equal(steps.at(-1)?.status, 'ok');
   assert.ok(steps.some((step) => step.id === 'npm' && step.status === 'ok'));
+  const lastById = new Map(steps.map((step) => [step.id, step]));
+  assert.equal(lastById.get('start')?.status, 'ok');
+  assert.ok([...lastById.values()].every((step) => step.status !== 'running'));
 });
 
 test('installAgent reports npm failure from the stub', async () => {
@@ -150,4 +157,85 @@ test('installAgent reports npm failure from the stub', async () => {
   for await (const step of engine.installAgent('opencode')) steps.push(step);
   assert.equal(steps.at(-1)?.status, 'fail');
   assert.ok(String(steps.at(-1)?.detail || '').includes('stub install failed'));
+});
+
+test('agentInstallNpmArgs pins a specific package version', () => {
+  assert.deepEqual(agentInstallNpmArgs('@xai-official/grok', '1.0.30'), [
+    'i',
+    '-g',
+    '@xai-official/grok@1.0.30',
+    '--registry=https://registry.npmjs.org/',
+  ]);
+  assert.deepEqual(agentUninstallNpmArgs('@google/gemini-cli'), [
+    'uninstall',
+    '-g',
+    '@google/gemini-cli',
+    '--registry=https://registry.npmjs.org/',
+  ]);
+});
+
+test('isNpmVersion accepts semver-like ids and rejects tags or paths', () => {
+  assert.equal(isNpmVersion('1.0.30'), true);
+  assert.equal(isNpmVersion('v1.0.30'), true);
+  assert.equal(isNpmVersion('1.0.30-beta.1'), true);
+  assert.equal(isNpmVersion('0.59'), true);
+  assert.equal(isNpmVersion('latest'), false);
+  assert.equal(isNpmVersion('@1.0.30'), false);
+  assert.equal(isNpmVersion('1.0.0/../x'), false);
+  assert.equal(isNpmVersion(''), false);
+});
+
+test('listAgentVersions uses the stubbed npm version list', async () => {
+  process.env.MSW_NPM_VERSIONS = JSON.stringify(['1.0.30', '1.0.25', '1.0.0']);
+  const engine = new Engine();
+  const pack = await engine.listAgentVersions('grok-build');
+  assert.equal(pack.id, 'grok-build');
+  assert.equal(pack.npmPackage, '@xai-official/grok');
+  assert.equal(pack.current, '1.0.0');
+  assert.equal(pack.latest, '2.0.0');
+  assert.ok(pack.versions.includes('1.0.30'));
+  assert.ok(pack.versions.includes('2.0.0'));
+});
+
+test('installAgent pins npm i -g package@version', async () => {
+  process.env.MSW_NPM_STUB = 'ok';
+  const engine = new Engine();
+  const steps = [];
+  for await (const step of engine.installAgent('grok-build', '1.0.30')) steps.push(step);
+  assert.ok(steps.some((step) => step.id === 'npm' && String(step.title).includes('@xai-official/grok@1.0.30')));
+  assert.equal(steps.at(-1)?.id, 'summary');
+  assert.equal(steps.at(-1)?.status, 'ok');
+});
+
+test('installAgent rejects unsafe version strings', async () => {
+  process.env.MSW_NPM_STUB = 'ok';
+  const engine = new Engine();
+  const steps = [];
+  for await (const step of engine.installAgent('codex', '../evil')) steps.push(step);
+  assert.equal(steps.at(-1)?.status, 'fail');
+  assert.ok(String(steps.at(-1)?.detail || '').includes('无效版本'));
+  assert.ok(!steps.some((step) => step.id === 'npm'));
+});
+
+test('uninstallAgent warns when PATH still has the binary', async () => {
+  process.env.MSW_NPM_STUB = 'ok';
+  const engine = new Engine();
+  const steps = [];
+  for await (const step of engine.uninstallAgent('codex')) steps.push(step);
+  assert.equal(steps.at(-1)?.status, 'warn');
+  assert.match(String(steps.at(-1)?.detail || ''), /PATH/);
+});
+
+test('uninstallAgent succeeds after the stub removes the binary', async () => {
+  process.env.MSW_NPM_STUB = 'ok';
+  process.env.MSW_NPM_STUB_UNLINK = join(root, 'bin', 'gemini');
+  const engine = new Engine();
+  const steps = [];
+  for await (const step of engine.uninstallAgent('gemini')) steps.push(step);
+  const lastById = new Map(steps.map((step) => [step.id, step]));
+  assert.equal(lastById.get('start')?.status, 'ok');
+  assert.equal(lastById.get('npm')?.status, 'ok');
+  assert.equal(steps.at(-1)?.status, 'ok');
+  assert.ok(String(steps.at(-1)?.title || '').includes('已卸载'));
+  assert.ok([...lastById.values()].every((step) => step.status !== 'running'));
 });

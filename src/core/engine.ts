@@ -20,9 +20,12 @@ import {
 } from './probe.ts';
 import {
   collectAgentInstallInfo,
+  collectAgentVersions,
   installAgentSteps,
   listAgentInstallInfo as collectAllAgentInstallInfo,
+  uninstallAgentSteps,
   type AgentInstallInfo,
+  type AgentVersionInfo,
 } from './agent-install.ts';
 import {
   AGENT_CHOICES,
@@ -344,8 +347,16 @@ export class Engine {
     return collectAllAgentInstallInfo();
   }
 
-  async *installAgent(agentId: string): AsyncGenerator<PingStep> {
-    yield* installAgentSteps(requireAgent(agentId));
+  listAgentVersions(agentId: string): Promise<AgentVersionInfo> {
+    return collectAgentVersions(requireAgent(agentId));
+  }
+
+  async *installAgent(agentId: string, version?: string): AsyncGenerator<PingStep> {
+    yield* installAgentSteps(requireAgent(agentId), version);
+  }
+
+  async *uninstallAgent(agentId: string): AsyncGenerator<PingStep> {
+    yield* uninstallAgentSteps(requireAgent(agentId));
   }
 
   use(target: string, opts: { agent?: string; scope?: 'global' | 'session' } = {}): SwitchResult {

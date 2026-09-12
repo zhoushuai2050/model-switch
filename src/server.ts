@@ -59,23 +59,46 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
   if (req.method === 'GET' && path === '/api/agents/install') {
     return send(res, 200, await engine.listAgentInstallInfo());
   }
+  if (req.method === 'GET' && path.startsWith('/api/agents/') && path.endsWith('/versions')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    return send(res, 200, await engine.listAgentVersions(id));
+  }
   if (req.method === 'GET' && path.startsWith('/api/agents/') && path.endsWith('/install')) {
     const id = decodeURIComponent(path.split('/')[3] || '');
     return send(res, 200, await engine.agentInstallInfo(id));
   }
   if (req.method === 'POST' && path.startsWith('/api/agents/') && path.endsWith('/install')) {
     const id = decodeURIComponent(path.split('/')[3] || '');
+    const body = await readBody(req);
+    const version = body.version ? String(body.version) : undefined;
     res.writeHead(200, {
       'content-type': 'application/x-ndjson; charset=utf-8',
       'cache-control': 'no-store',
     });
     try {
-      for await (const step of engine.installAgent(id)) {
+      for await (const step of engine.installAgent(id, version)) {
         res.write(`${JSON.stringify(step)}\n`);
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       res.write(`${JSON.stringify({ id: 'summary', title: '安装失败', status: 'fail', detail })}\n`);
+    }
+    res.end();
+    return;
+  }
+  if (req.method === 'POST' && path.startsWith('/api/agents/') && path.endsWith('/uninstall')) {
+    const id = decodeURIComponent(path.split('/')[3] || '');
+    res.writeHead(200, {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    try {
+      for await (const step of engine.uninstallAgent(id)) {
+        res.write(`${JSON.stringify(step)}\n`);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      res.write(`${JSON.stringify({ id: 'summary', title: '卸载失败', status: 'fail', detail })}\n`);
     }
     res.end();
     return;

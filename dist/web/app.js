@@ -43,6 +43,7 @@ const state = {
   install: null,
   installs: {},
   installing: false,
+  packageJob: '',
   theme: localStorage.getItem('msw-theme') || 'midnight',
   lang: detectLang(),
 };
@@ -377,6 +378,9 @@ function installInfoFor(id = state.app) {
   if (live && !live.installed) {
     return { id, name: live.name || appName(id), installed: false, action: 'install' };
   }
+  if (live?.installed) {
+    return { id, name: live.name || appName(id), installed: true, action: 'none' };
+  }
   return null;
 }
 
@@ -396,17 +400,28 @@ function maybePromptUpdate(info) {
 
 function installButtonHtml(info) {
   if (state.installing) {
-    return `<button class="btn" data-agent-install type="button" disabled>${t('agent.working')}</button>`;
+    const label = state.packageJob === 'uninstall' ? t('agent.uninstalling') : t('agent.working');
+    return `<button class="btn" data-agent-manage type="button" disabled>${label}</button>`;
   }
-  if (!info || info.action === 'none') return '';
-  const primary = info.action === 'install' ? ' primary' : '';
-  const label = info.action === 'install'
-    ? (info.latest ? t('agent.installVersion', { app: appName(), version: info.latest }) : t('agent.install', { app: appName() }))
-    : t('agent.updateTo', { version: info.latest });
-  const icon = info.action === 'install'
-    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.4M20 5v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  return `<button class="btn${primary}" data-agent-install type="button">${icon}<span>${label}</span></button>`;
+  if (!info) return '';
+  if (!info.installed) {
+    const label = info.latest
+      ? t('agent.installVersion', { app: appName(), version: info.latest })
+      : t('agent.install', { app: appName() });
+    return `<button class="btn primary" data-agent-manage type="button">${installIcon()}<span>${label}</span></button>`;
+  }
+  if (info.action === 'update') {
+    return `<button class="btn" data-agent-manage type="button">${updateIcon()}<span>${t('agent.updateTo', { version: info.latest })}</span></button>`;
+  }
+  return `<button class="btn" data-agent-manage type="button"><span>${t('agent.manage', { app: appName() })}</span></button>`;
+}
+
+function installIcon() {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function updateIcon() {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.4M20 5v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function renderInstallAction() {
@@ -416,7 +431,7 @@ function renderInstallAction() {
   const onProviders = state.view === 'providers';
   if (host) host.innerHTML = onProviders ? installButtonHtml(info) : '';
   if (!banner) return;
-  if (!onProviders || !info || (info.action === 'none' && !state.installing)) {
+  if (!onProviders || !info || info.action === 'none' || (info.installed && info.action !== 'update' && !state.installing)) {
     banner.classList.add('hidden');
     banner.innerHTML = '';
     return;
@@ -426,7 +441,7 @@ function renderInstallAction() {
     ? t('agent.needUpdateTitle', { app: appName() })
     : t('agent.needInstallTitle', { app: appName() });
   const detail = updating
-    ? t('agent.needUpdateDetail', { version: info.version || '?', latest: info.latest || '?' })
+    ? t('agent.needUpdateDetail', { app: appName(), version: info.version || '?', latest: info.latest || '?' })
     : t('agent.needInstallDetail', { app: appName() });
   banner.classList.remove('hidden');
   banner.innerHTML = `<div class="install-banner${updating ? ' update' : ''}">
@@ -461,17 +476,87 @@ async function loadInstallInfo() {
   }
 }
 
-async function openInstallModal() {
+function versionOptionLabel(version, pack) {
+  const tags = [];
+  if (pack?.current && version === pack.current) tags.push(t('agent.versionCurrent'));
+  if (pack?.latest && version === pack.latest) tags.push(t('agent.versionLatest'));
+  return tags.length ? `${version} (${tags.join(' / ')})` : version;
+}
+
+async function openAgentPackageModal() {
   if (state.installing) return;
-  const info = installInfo();
-  if (!info || info.action === 'none') return;
-  const updating = info.action === 'update';
-  state.installing = true;
-  renderInstallAction();
+  const info = installInfo() || {
+    id: state.app,
+    name: appName(),
+    installed: Boolean(agent()?.installed),
+    version: undefined,
+    latest: undefined,
+    action: agent()?.installed ? 'none' : 'install',
+  };
+  const installed = Boolean(info.installed);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog install-dialog">
-    <h2>${updating ? t('agent.updateTitle', { app: appName() }) : t('agent.installTitle', { app: appName() })}</h2>
-    <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">${updating ? t('agent.updateStart') : t('agent.installStart')}</div></div></div></div>
+    <h2>${installed ? t('agent.manageTitle', { app: appName() }) : t('agent.installTitle', { app: appName() })}</h2>
+    <p class="form-tip">${t('agent.versionLoading')}</p>
+  </div>`;
+  let pack = {
+    current: info.version,
+    latest: info.latest,
+    versions: [info.latest, info.version].filter(Boolean).filter((item, index, list) => list.indexOf(item) === index),
+  };
+  try {
+    pack = await api(`/api/agents/${encodeURIComponent(state.app)}/versions`);
+  } catch (error) {
+    if (!pack.versions.length) toast(error.message || String(error), true);
+  }
+  const versions = pack.versions?.length ? pack.versions : (pack.latest ? [pack.latest] : []);
+  const selected = info.action === 'update'
+    ? (pack.latest || versions[0] || '')
+    : (info.version || pack.latest || versions[0] || '');
+  const options = (versions.length ? versions : ['']).map((version) => {
+    const value = version || '';
+    const label = value ? versionOptionLabel(value, pack) : t('agent.versionLatest');
+    return `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+  const status = installed
+    ? t('agent.manageDetail', {
+        version: info.version || pack.current || '?',
+        latest: pack.latest || info.latest || '?',
+      })
+    : t('agent.needInstallDetail', { app: appName() });
+  const installLabel = installed
+    ? (selected && selected !== info.version ? t('agent.installThis') : t('agent.reinstall'))
+    : t('action.install');
+  $('#modal').innerHTML = `<div class="dialog install-dialog">
+    <h2>${installed ? t('agent.manageTitle', { app: appName() }) : t('agent.installTitle', { app: appName() })}</h2>
+    <p class="install-status">${status}</p>
+    <form id="agent-package-form">
+      <label class="field">${t('agent.version')}
+        <select name="version">${options}</select>
+      </label>
+      <div class="dialog-actions">
+        ${installed ? `<button class="btn danger" type="button" data-agent-uninstall>${t('agent.uninstall')}</button>` : ''}
+        <button class="btn" type="button" id="btn-cancel">${t('action.cancel')}</button>
+        <button class="btn primary" type="submit">${installLabel}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+async function runAgentPackageJob(kind, version) {
+  if (state.installing) return;
+  const uninstalling = kind === 'uninstall';
+  state.installing = true;
+  state.packageJob = kind;
+  renderInstallAction();
+  $('#modal').classList.remove('hidden');
+  const jobTitle = uninstalling
+    ? t('agent.uninstallTitle', { app: appName() })
+    : (version ? t('agent.installVersion', { app: appName(), version }) : t('agent.installTitle', { app: appName() }));
+  const jobStart = uninstalling ? t('agent.uninstallStart') : t('agent.installStart');
+  $('#modal').innerHTML = `<div class="dialog install-dialog">
+    <h2>${jobTitle}</h2>
+    <div class="probe" id="probe-list"><div class="probe-step running"><span class="probe-mark"></span><div><div class="probe-title">${jobStart}</div></div></div></div>
     <div class="dialog-actions">
       <button class="btn" type="button" id="btn-cancel">${t('action.close')}</button>
     </div>
@@ -479,12 +564,16 @@ async function openInstallModal() {
   const list = $('#probe-list');
   const steps = new Map();
   try {
-    const res = await fetch(`/api/agents/${encodeURIComponent(state.app)}/install`, { method: 'POST' });
+    const res = await fetch(`/api/agents/${encodeURIComponent(state.app)}/${uninstalling ? 'uninstall' : 'install'}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(uninstalling ? {} : { version: version || undefined }),
+    });
     if (!res.ok) {
       const data = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(data.error || res.statusText);
     }
-    if (!res.body) throw new Error(updating ? t('agent.updateFail') : t('agent.installFail'));
+    if (!res.body) throw new Error(uninstalling ? t('agent.uninstallFail') : t('agent.installFail'));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
@@ -508,14 +597,17 @@ async function openInstallModal() {
     }
     const summary = [...steps.values()].find((item) => item.id === 'summary');
     const failed = summary?.status === 'fail';
+    settleProbeSteps(steps, failed);
+    if (list) list.innerHTML = renderProbe(steps);
     toast(
       summary?.title || (failed
-        ? (updating ? t('agent.updateFail') : t('agent.installFail'))
-        : (updating ? t('agent.updateDone', { app: appName() }) : t('agent.installDone', { app: appName() }))),
+        ? (uninstalling ? t('agent.uninstallFail') : t('agent.installFail'))
+        : (uninstalling ? t('agent.uninstallDone', { app: appName() }) : t('agent.installDone', { app: appName() }))),
       failed,
     );
   } finally {
     state.installing = false;
+    state.packageJob = '';
     await refresh().catch((error) => toast(error.message || String(error), true));
   }
 }
@@ -626,6 +718,12 @@ function closeModelModal() {
   el.innerHTML = '';
 }
 
+function settleProbeSteps(steps, failed = false) {
+  for (const step of steps.values()) {
+    if (step.status === 'running') step.status = failed ? 'fail' : 'ok';
+  }
+}
+
 function renderProbe(steps) {
   return [...steps.values()].map((step) => {
     const meta = [step.method, step.httpStatus, step.ms != null ? `${step.ms}ms` : ''].filter(Boolean).join(' · ');
@@ -703,6 +801,8 @@ async function openPingModal(providerId) {
     if (list) list.innerHTML = renderProbe(steps);
   }
   const summary = [...steps.values()].find((item) => item.id === 'summary');
+  settleProbeSteps(steps, summary?.status === 'fail');
+  if (list) list.innerHTML = renderProbe(steps);
   if (summary) toast(summary.title || (summary.status === 'fail' ? t('ping.fail') : t('ping.done')), summary.status === 'fail');
 }
 
@@ -854,7 +954,15 @@ function closeDockMenus(except) {
 
 document.body.addEventListener('change', (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLSelectElement) || target.name !== 'preset') return;
+  if (!(target instanceof HTMLSelectElement)) return;
+  if (target.form?.id === 'agent-package-form' && target.name === 'version') {
+    const info = installInfo();
+    const submit = target.form.querySelector('button[type="submit"]');
+    if (!submit || !info?.installed) return;
+    submit.textContent = target.value && target.value !== info.version ? t('agent.installThis') : t('agent.reinstall');
+    return;
+  }
+  if (target.name !== 'preset') return;
   if (target.form?.id !== 'add-provider') return;
   fillPresetFields(target.form, target.value, false);
 });
@@ -905,8 +1013,13 @@ document.body.addEventListener('click', async (event) => {
     openAgentConfigModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
-  if (target.closest('[data-agent-install]')) {
-    openInstallModal().catch((error) => toast(error.message || String(error), true));
+  if (target.closest('[data-agent-uninstall]')) {
+    if (!confirm(t('agent.uninstallConfirm', { app: appName() }))) return;
+    runAgentPackageJob('uninstall').catch((error) => toast(error.message || String(error), true));
+    return;
+  }
+  if (target.closest('[data-agent-manage], [data-agent-install]')) {
+    openAgentPackageModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
   if (target.dataset.app) {
@@ -1027,6 +1140,10 @@ document.body.addEventListener('submit', async (event) => {
         toast(t('model.added', { name: modelId }));
         closeModelModal();
       }
+      return;
+    }
+    if (form.id === 'agent-package-form') {
+      await runAgentPackageJob('install', String(data.version || '').trim());
       return;
     }
     if (form.id === 'agent-config-form') {

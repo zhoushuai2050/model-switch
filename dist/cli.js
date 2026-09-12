@@ -3,7 +3,7 @@ import "./core/silence-sqlite-warning.js";
 import { engine, EngineError } from "./core/engine.js";
 import { HELP, HELP_CUSTOM } from "./cli/help.js";
 import { selfUpdate, updateNpmArgs, resolveNpm } from "./cli/update.js";
-import { runAgentNpmInstall } from "./core/agent-install.js";
+import { isNpmVersion, runAgentNpmInstall, runAgentNpmUninstall } from "./core/agent-install.js";
 import { flag, flagList, parseArgv } from "./cli/parse.js";
 import { color, printProviders, printStatus, printSwitch } from "./cli/format.js";
 import { runTui } from "./cli/tui.js";
@@ -49,12 +49,12 @@ async function dispatch() {
         }
         case 'agent': {
             const sub = args.args[0];
-            if (sub === 'install' || sub === 'update') {
+            if (sub === 'install' || sub === 'update' || sub === 'uninstall') {
                 await agentInstallCommand(sub, args.args[1]);
                 return;
             }
             if (!sub)
-                throw new EngineError(`Usage: msw agent <${AGENT_CHOICES}|install|update>`);
+                throw new EngineError(`Usage: msw agent <${AGENT_CHOICES}|install|update|uninstall>`);
             engine.setAgent(sub);
             console.log(`current agent: ${sub}`);
             return;
@@ -288,19 +288,39 @@ async function agentInstallCommand(action, agentId) {
     if (!id)
         throw new EngineError(`Usage: msw agent ${action} <${AGENT_CHOICES}>`);
     const info = await engine.agentInstallInfo(id);
+    if (action === 'uninstall') {
+        if (!info.installed)
+            throw new EngineError(`${info.name} 未安装`);
+        console.log(color.bold(`Uninstalling ${info.name}`));
+        console.log(color.dim(`npm uninstall -g ${info.npmPackage}`));
+        const result = await runAgentNpmUninstall(info.npmPackage, { inherit: true });
+        if (result.code !== 0)
+            throw new EngineError(`${info.name} 卸载失败 (exit ${result.code})`);
+        const after = await engine.agentInstallInfo(id);
+        if (after.installed) {
+            console.log(color.amber(`${after.name} npm 已卸载，但 PATH 里还能找到 ${after.bin || '可执行文件'}`));
+            return;
+        }
+        console.log(color.green(`${info.name} 已卸载`));
+        return;
+    }
     if (action === 'update' && !info.installed) {
         throw new EngineError(`${info.name} 未安装。先运行 msw agent install ${info.id}`);
     }
-    if (action === 'install' && info.installed && !info.outdated) {
+    const version = flag(args, 'version') || undefined;
+    if (version && !isNpmVersion(version))
+        throw new EngineError(`无效版本 ${version}`);
+    if (action === 'install' && info.installed && !info.outdated && !version) {
         console.log(`${info.name} 已安装 ${info.version || info.bin || ''}`.trim());
         if (info.latest)
             console.log(color.dim(`最新版本 ${info.latest}`));
         return;
     }
+    const spec = version ? `${info.npmPackage}@${version}` : info.npmPackage;
     const label = info.installed ? 'Updating' : 'Installing';
-    console.log(color.bold(`${label} ${info.name}`));
-    console.log(color.dim(`npm i -g ${info.npmPackage}`));
-    const result = await runAgentNpmInstall(info.npmPackage, { inherit: true });
+    console.log(color.bold(`${label} ${info.name}${version ? ` ${version}` : ''}`));
+    console.log(color.dim(`npm i -g ${spec}`));
+    const result = await runAgentNpmInstall(info.npmPackage, { inherit: true, version });
     if (result.code !== 0)
         throw new EngineError(`${info.name} ${info.installed ? '更新' : '安装'}失败 (exit ${result.code})`);
     const after = await engine.agentInstallInfo(id);

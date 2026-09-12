@@ -7,7 +7,7 @@ import { atomicWrite, backupFiles, readText } from "./fsutil.js";
 import { getPreset, PRESETS } from "./presets.js";
 import { withPathEnv } from "./paths.js";
 import { buildChildEnv, classifyProbe, cleanupPingDirs, commandLine, createPingDirs, isProbeTestStep, PING_TIMEOUT_MS, randomPingPrompt, runCommand, } from "./probe.js";
-import { collectAgentInstallInfo, installAgentSteps, listAgentInstallInfo as collectAllAgentInstallInfo, } from "./agent-install.js";
+import { collectAgentInstallInfo, collectAgentVersions, installAgentSteps, listAgentInstallInfo as collectAllAgentInstallInfo, uninstallAgentSteps, } from "./agent-install.js";
 import { AGENT_CHOICES, AGENT_IDS, isAgentId, now, liveProviderKey, protocolCompatibleAgents, protocolsForAgent, slug, } from "./types.js";
 export { protocolsForAgent };
 export class EngineError extends Error {
@@ -257,8 +257,14 @@ export class Engine {
     listAgentInstallInfo() {
         return collectAllAgentInstallInfo();
     }
-    async *installAgent(agentId) {
-        yield* installAgentSteps(requireAgent(agentId));
+    listAgentVersions(agentId) {
+        return collectAgentVersions(requireAgent(agentId));
+    }
+    async *installAgent(agentId, version) {
+        yield* installAgentSteps(requireAgent(agentId), version);
+    }
+    async *uninstallAgent(agentId) {
+        yield* uninstallAgentSteps(requireAgent(agentId));
     }
     use(target, opts = {}) {
         const fallback = opts.agent && isAgentId(opts.agent) ? opts.agent : db.getState().currentAgent;

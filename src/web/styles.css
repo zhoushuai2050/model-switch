@@ -581,6 +581,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-sof
 }
 .dialog h2 { margin: 0 0 14px; font-size: 16px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.dialog-actions .btn.danger { margin-right: auto; }
+.install-status {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.install-dialog .field { margin-bottom: 16px; }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);

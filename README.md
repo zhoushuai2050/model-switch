@@ -2,7 +2,7 @@
 
 本机切换 Claude Code、Codex、Grok Build、Gemini CLI、OpenCode 的模型和供应商。
 
-需要 Node.js 22+。可以先自己装 Agent（`claude` / `codex` / `grok` / `gemini` / `opencode`），也可以在管理台每个 Agent 页面里一键安装 / 更新。
+需要 Node.js 22+。可以先自己装 Agent（`claude` / `codex` / `grok` / `gemini` / `opencode`），也可以在管理台每个 Agent 页面里安装、选版本或卸载。
 
 ## 系统界面
 
@@ -25,7 +25,7 @@ msw serve
 ```
 <img width="1906" height="759" alt="image" src="https://github.com/user-attachments/assets/ddb6be27-9952-407b-9cd5-85568cd1006e" />
 
-浏览器打开 http://127.0.0.1:8787 。顶部切 Agent 后，只显示这个 Agent 能用的供应商。卡片上可以点选模型、启用、测通、编辑；添加模型会弹出窗口。左下角可切换主题和中文 / English。工具栏可以打开当前 Agent 的配置文件。未安装时可以点安装，已安装但不是最新版时可以点更新。
+浏览器打开 http://127.0.0.1:8787 。顶部切 Agent 后，只显示这个 Agent 能用的供应商。卡片上可以点选模型、启用、测通、编辑；添加模型会弹出窗口。左下角可切换主题和中文 / English。工具栏可以打开当前 Agent 的配置文件。未安装时可以选版本安装；已安装时可以换版本或卸载。过期版本会提示更新。
 
 ## 安装
 
@@ -120,6 +120,8 @@ msw provider rm-model local grok-4.6
 ```bash
 msw agent codex        # claude | codex | grok-build | gemini | opencode
 msw agent install claude
+msw agent install grok-build --version 1.0.30
+msw agent uninstall gemini
 msw agent update grok-build
 msw use local          # 切到刚加的供应商
 msw ping local         # 可选，通过 Agent SDK 测通，会消耗少量 Token
@@ -203,6 +205,8 @@ msw provider select-model kimi gpt-5.4
 msw use kimi            # 切供应商（用当前选中的模型）
 msw ping kimi           # 测通（用当前选中的模型）
 msw agent install claude
+msw agent install grok-build --version 1.0.30
+msw agent uninstall gemini
 msw agent update grok-build
 msw serve               # 网页管理台
 msw help custom         # 自定义中转示例
