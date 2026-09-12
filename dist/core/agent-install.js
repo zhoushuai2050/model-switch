@@ -14,6 +14,7 @@ export const AGENT_NPM_PACKAGES = {
     opencode: 'opencode-ai',
 };
 export const INSTALL_TIMEOUT_MS = 8 * 60 * 1000;
+export const AGENT_VERSION_LIMIT = 10;
 export function npmPackageSpec(npmPackage, version) {
     return version ? `${npmPackage}@${version}` : npmPackage;
 }
@@ -53,6 +54,23 @@ export function agentInstallAction(input) {
         return { outdated: false, action: 'install' };
     const outdated = Boolean(input.latest) && (!input.version || compareVersions(input.version, input.latest) < 0);
     return { outdated, action: outdated ? 'update' : 'none' };
+}
+export function limitAgentVersions(versions, opts = {}) {
+    const limit = opts.limit ?? AGENT_VERSION_LIMIT;
+    const seen = new Set();
+    const out = [];
+    const push = (value) => {
+        const version = String(value || '').trim();
+        if (!version || seen.has(version) || out.length >= limit)
+            return;
+        seen.add(version);
+        out.push(version);
+    };
+    push(opts.latest);
+    push(opts.current);
+    for (const version of versions)
+        push(version);
+    return out;
 }
 export async function fetchNpmLatest(npmPackage, timeoutMs = 8000) {
     if (process.env.MSW_NPM_LATEST)
@@ -176,10 +194,7 @@ export async function collectAgentVersions(agentId) {
     catch (err) {
         error = err instanceof Error ? err.message : String(err);
     }
-    if (latest && !versions.includes(latest))
-        versions.unshift(latest);
-    if (info.version && !versions.includes(info.version))
-        versions.unshift(info.version);
+    versions = limitAgentVersions(versions, { current: info.version, latest });
     return {
         id: info.id,
         name: info.name,
@@ -219,7 +234,7 @@ export async function fetchNpmVersions(npmPackage, timeoutMs = 10000) {
             ? data['dist-tags'].latest
             : versions[0];
         const rest = versions.filter((item) => item !== latest);
-        return { latest, versions: [latest, ...rest].filter((item) => Boolean(item)).slice(0, 50) };
+        return { latest, versions: [latest, ...rest].filter((item) => Boolean(item)).slice(0, AGENT_VERSION_LIMIT) };
     }
     catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {

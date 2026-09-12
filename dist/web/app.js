@@ -49,7 +49,6 @@ const state = {
 };
 
 let installReq = 0;
-const promptedUpdate = new Set();
 
 setLang(state.lang, false);
 
@@ -352,14 +351,10 @@ function renderStatus() {
   const live = agent();
   const info = installInfo();
   const on = Boolean(live?.installed && live?.configured);
-  const available = state.providers.filter((item) => supportsAgent(item)).length;
+  const version = info?.version;
   $('#status-chip').innerHTML = `<span class="dot ${on ? 'on' : 'off'}"></span>
     <b>${live?.name || appName()}</b>
-    <span>${live?.model || t('status.unconfigured')}</span>
-    <span>${live?.providerLabel || live?.bin || (live?.installed ? t('status.installed') : t('status.notInstalled'))}</span>
-    ${info?.version ? `<span>${escapeHtml(info.version)}</span>` : ''}
-    ${info?.action === 'update' ? `<span class="badge warn">${t('status.updateAvailable')}</span>` : ''}
-    <span>${t('status.available', { n: available })}</span>`;
+    ${version ? `<span class="status-version">${escapeHtml(version)}</span>` : ''}`;
   const configLabel = $('#btn-config-label');
   if (configLabel) configLabel.textContent = t('nav.viewConfigApp', { app: appName() });
   const configButton = $('#btn-agent-config');
@@ -367,7 +362,6 @@ function renderStatus() {
   const addLabel = $('#btn-add-label');
   if (addLabel) addLabel.textContent = t('nav.addProviderApp', { app: appName() });
   renderInstallAction();
-  maybePromptUpdate(info);
 }
 
 function installInfoFor(id = state.app) {
@@ -388,40 +382,21 @@ function installInfo() {
   return installInfoFor(state.app);
 }
 
-function maybePromptUpdate(info) {
-  if (!info || info.action !== 'update' || promptedUpdate.has(info.id)) return;
-  promptedUpdate.add(info.id);
-  toast(t('agent.updateHint', {
-    app: info.name || appName(info.id),
-    version: info.version || '?',
-    latest: info.latest || '?',
-  }), false, 4200);
-}
-
-function installButtonHtml(info) {
+function agentActionButtonsHtml(info) {
   if (state.installing) {
     const label = state.packageJob === 'uninstall' ? t('agent.uninstalling') : t('agent.working');
-    return `<button class="btn" data-agent-manage type="button" disabled>${label}</button>`;
+    return `<button class="btn" type="button" disabled>${label}</button>`;
   }
   if (!info) return '';
   if (!info.installed) {
-    const label = info.latest
-      ? t('agent.installVersion', { app: appName(), version: info.latest })
-      : t('agent.install', { app: appName() });
-    return `<button class="btn primary" data-agent-manage type="button">${installIcon()}<span>${label}</span></button>`;
+    return `<button class="btn primary" data-agent-install type="button">${installIcon()}<span>${t('action.install')}</span></button>`;
   }
-  if (info.action === 'update') {
-    return `<button class="btn" data-agent-manage type="button">${updateIcon()}<span>${t('agent.updateTo', { version: info.latest })}</span></button>`;
-  }
-  return `<button class="btn" data-agent-manage type="button"><span>${t('agent.manage', { app: appName() })}</span></button>`;
+  return `<button class="btn danger" data-agent-uninstall type="button">${t('agent.uninstall')}</button>
+    <button class="btn" data-agent-manage type="button">${t('agent.manage')}</button>`;
 }
 
 function installIcon() {
   return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-}
-
-function updateIcon() {
-  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.2-5.4M20 5v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function renderInstallAction() {
@@ -429,28 +404,10 @@ function renderInstallAction() {
   const banner = $('#agent-install-banner');
   const info = installInfo();
   const onProviders = state.view === 'providers';
-  if (host) host.innerHTML = onProviders ? installButtonHtml(info) : '';
+  if (host) host.innerHTML = onProviders ? agentActionButtonsHtml(info) : '';
   if (!banner) return;
-  if (!onProviders || !info || info.action === 'none' || (info.installed && info.action !== 'update' && !state.installing)) {
-    banner.classList.add('hidden');
-    banner.innerHTML = '';
-    return;
-  }
-  const updating = info.action === 'update';
-  const title = updating
-    ? t('agent.needUpdateTitle', { app: appName() })
-    : t('agent.needInstallTitle', { app: appName() });
-  const detail = updating
-    ? t('agent.needUpdateDetail', { app: appName(), version: info.version || '?', latest: info.latest || '?' })
-    : t('agent.needInstallDetail', { app: appName() });
-  banner.classList.remove('hidden');
-  banner.innerHTML = `<div class="install-banner${updating ? ' update' : ''}">
-    <div>
-      <strong>${title}</strong>
-      <p>${detail}</p>
-    </div>
-    ${installButtonHtml(info)}
-  </div>`;
+  banner.classList.add('hidden');
+  banner.innerHTML = '';
 }
 
 async function loadInstallInfo() {
@@ -496,7 +453,7 @@ async function openAgentPackageModal() {
   const installed = Boolean(info.installed);
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML = `<div class="dialog install-dialog">
-    <h2>${installed ? t('agent.manageTitle', { app: appName() }) : t('agent.installTitle', { app: appName() })}</h2>
+    <h2>${installed ? t('agent.manageTitle') : t('agent.installTitle', { app: appName() })}</h2>
     <p class="form-tip">${t('agent.versionLoading')}</p>
   </div>`;
   let pack = {
@@ -509,7 +466,7 @@ async function openAgentPackageModal() {
   } catch (error) {
     if (!pack.versions.length) toast(error.message || String(error), true);
   }
-  const versions = pack.versions?.length ? pack.versions : (pack.latest ? [pack.latest] : []);
+  const versions = (pack.versions?.length ? pack.versions : (pack.latest ? [pack.latest] : [])).slice(0, 10);
   const selected = info.action === 'update'
     ? (pack.latest || versions[0] || '')
     : (info.version || pack.latest || versions[0] || '');
@@ -528,14 +485,13 @@ async function openAgentPackageModal() {
     ? (selected && selected !== info.version ? t('agent.installThis') : t('agent.reinstall'))
     : t('action.install');
   $('#modal').innerHTML = `<div class="dialog install-dialog">
-    <h2>${installed ? t('agent.manageTitle', { app: appName() }) : t('agent.installTitle', { app: appName() })}</h2>
+    <h2>${installed ? t('agent.manageTitle') : t('agent.installTitle', { app: appName() })}</h2>
     <p class="install-status">${status}</p>
     <form id="agent-package-form">
       <label class="field">${t('agent.version')}
         <select name="version">${options}</select>
       </label>
       <div class="dialog-actions">
-        ${installed ? `<button class="btn danger" type="button" data-agent-uninstall>${t('agent.uninstall')}</button>` : ''}
         <button class="btn" type="button" id="btn-cancel">${t('action.cancel')}</button>
         <button class="btn primary" type="submit">${installLabel}</button>
       </div>

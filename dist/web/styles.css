@@ -319,6 +319,11 @@ button { cursor: pointer; }
   color: var(--muted); font-size: 12px;
 }
 .status-chip b { color: var(--ink); font-weight: 600; }
+.status-version {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .dot.on { background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
 .dot.off { background: var(--red); }

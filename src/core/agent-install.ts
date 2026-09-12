@@ -17,6 +17,7 @@ export const AGENT_NPM_PACKAGES: Record<AgentId, string> = {
 };
 
 export const INSTALL_TIMEOUT_MS = 8 * 60 * 1000;
+export const AGENT_VERSION_LIMIT = 10;
 
 export type AgentInstallAction = 'install' | 'update' | 'none';
 
@@ -90,6 +91,25 @@ export interface AgentVersionInfo {
   latest?: string;
   versions: string[];
   error?: string;
+}
+
+export function limitAgentVersions(
+  versions: string[],
+  opts: { current?: string; latest?: string; limit?: number } = {},
+): string[] {
+  const limit = opts.limit ?? AGENT_VERSION_LIMIT;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value?: string) => {
+    const version = String(value || '').trim();
+    if (!version || seen.has(version) || out.length >= limit) return;
+    seen.add(version);
+    out.push(version);
+  };
+  push(opts.latest);
+  push(opts.current);
+  for (const version of versions) push(version);
+  return out;
 }
 
 export async function fetchNpmLatest(npmPackage: string, timeoutMs = 8000): Promise<string> {
@@ -241,8 +261,7 @@ export async function collectAgentVersions(agentId: AgentId): Promise<AgentVersi
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   }
-  if (latest && !versions.includes(latest)) versions.unshift(latest);
-  if (info.version && !versions.includes(info.version)) versions.unshift(info.version);
+  versions = limitAgentVersions(versions, { current: info.version, latest });
   return {
     id: info.id,
     name: info.name,
@@ -285,7 +304,7 @@ export async function fetchNpmVersions(npmPackage: string, timeoutMs = 10000): P
       ? data['dist-tags'].latest
       : versions[0];
     const rest = versions.filter((item) => item !== latest);
-    return { latest, versions: [latest, ...rest].filter((item): item is string => Boolean(item)).slice(0, 50) };
+    return { latest, versions: [latest, ...rest].filter((item): item is string => Boolean(item)).slice(0, AGENT_VERSION_LIMIT) };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('npm registry timeout');

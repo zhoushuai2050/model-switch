@@ -8,11 +8,13 @@ import { resetDbCache } from '../src/core/db.ts';
 import { Engine } from '../src/core/engine.ts';
 import {
   AGENT_NPM_PACKAGES,
+  AGENT_VERSION_LIMIT,
   agentInstallAction,
   agentInstallNpmArgs,
   agentUninstallNpmArgs,
   compareVersions,
   isNpmVersion,
+  limitAgentVersions,
   parseAgentVersion,
 } from '../src/core/agent-install.ts';
 
@@ -69,6 +71,15 @@ test('compareVersions orders semver cores', () => {
   assert.equal(compareVersions('1.0.0', '2.0.0'), -1);
   assert.equal(compareVersions('2.0.0', '2.0.0'), 0);
   assert.equal(compareVersions('2.1.0', '2.0.9'), 1);
+});
+
+test('limitAgentVersions keeps latest and current within 10 entries', () => {
+  const versions = Array.from({ length: 20 }, (_, i) => `1.${20 - i}.0`);
+  const limited = limitAgentVersions(versions, { latest: '1.20.0', current: '1.0.0' });
+  assert.equal(limited.length, AGENT_VERSION_LIMIT);
+  assert.equal(limited[0], '1.20.0');
+  assert.equal(limited[1], '1.0.0');
+  assert.ok(!limited.includes('1.11.0'));
 });
 
 test('agentInstallAction chooses install, update, or none', () => {
@@ -195,6 +206,19 @@ test('listAgentVersions uses the stubbed npm version list', async () => {
   assert.equal(pack.latest, '2.0.0');
   assert.ok(pack.versions.includes('1.0.30'));
   assert.ok(pack.versions.includes('2.0.0'));
+});
+
+test('listAgentVersions returns at most 10 recent versions', async () => {
+  process.env.MSW_NPM_VERSIONS = JSON.stringify([
+    '2.0.0', '1.9.0', '1.8.0', '1.7.0', '1.6.0', '1.5.0',
+    '1.4.0', '1.3.0', '1.2.0', '1.1.0', '1.0.0', '0.9.0',
+  ]);
+  const engine = new Engine();
+  const pack = await engine.listAgentVersions('claude');
+  assert.equal(pack.versions.length, AGENT_VERSION_LIMIT);
+  assert.equal(pack.versions[0], '2.0.0');
+  assert.ok(pack.versions.includes('1.0.0'));
+  assert.ok(!pack.versions.includes('0.9.0'));
 });
 
 test('installAgent pins npm i -g package@version', async () => {
