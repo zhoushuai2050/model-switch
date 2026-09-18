@@ -243,9 +243,11 @@ button { cursor: pointer; }
 
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .logo {
-  width: 32px; height: 32px; border-radius: 9px;
-  display: grid; place-items: center;
-  background: var(--primary); color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: block;
+  flex-shrink: 0;
   box-shadow: 0 6px 16px var(--primary-ring);
 }
 .brand strong { display: block; font-size: 14px; letter-spacing: -0.01em; }
