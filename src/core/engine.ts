@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
+import { anthropicBaseUrl } from '../adapters/claude.ts';
 import { adapters, getAdapter } from '../adapters/index.ts';
 import type { LaunchSpec } from '../adapters/types.ts';
 import * as db from './db.ts';
@@ -928,16 +929,25 @@ function matchLiveProvider(
   if (agentId === 'grok-build' && live.providerId) {
     return providers.find((item) => item.id === live.providerId);
   }
-  const url = (live.baseUrl || '').replace(/\/$/, '');
+  if (agentId === 'claude' && live.providerId) {
+    const byId = providers.find((item) => item.id === live.providerId);
+    if (byId) return byId;
+  }
+  const url = normalizeMatchUrl(live.baseUrl, agentId);
   if (!url) return undefined;
   const hits = providers.filter((item) =>
-    Object.values(item.protocols).some((cfg) => (cfg?.baseUrl || '').replace(/\/$/, '') === url),
+    Object.values(item.protocols).some((cfg) => normalizeMatchUrl(cfg?.baseUrl, agentId) === url),
   );
   if (hits.length === 1) return hits[0];
   if (live.providerLabel) {
     return hits.find((item) => item.name === live.providerLabel || item.id === live.providerLabel);
   }
   return undefined;
+}
+
+function normalizeMatchUrl(url: string | undefined, agentId: AgentId): string {
+  if (!url) return '';
+  return agentId === 'claude' ? anthropicBaseUrl(url) : url.replace(/\/$/, '');
 }
 
 export function protocolLabel(protocol: Protocol): string {

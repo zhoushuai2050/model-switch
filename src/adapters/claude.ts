@@ -21,7 +21,7 @@ function settingsPath(): string {
   return join(claudeHome(), 'settings.json');
 }
 
-function anthropicBaseUrl(url: string): string {
+export function anthropicBaseUrl(url: string): string {
   return url.replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
@@ -98,16 +98,19 @@ export const claudeAdapter: Adapter = {
     const settings = readJson<Settings>(settingsPath()) || {};
     settings.env = applyEnvTemplate(settings.env || {}, envFromProvider(payload.provider, payload.model));
     if (payload.model) settings.model = claudeAlias(payload.model);
+    settings.mswProviderId = payload.provider.id;
     writeJson(settingsPath(), settings);
   },
   readStatus() {
     const settings = readJson<Settings>(settingsPath());
     const env = settings?.env || {};
+    const providerId = asString(settings?.mswProviderId);
     return {
       configured: existsSync(settingsPath()),
       model: mappedModel(settings),
       baseUrl: env.ANTHROPIC_BASE_URL,
       providerLabel: env.ANTHROPIC_BASE_URL,
+      providerId,
     };
   },
   sessionLaunch(payload: ApplyPayload, extraArgs: string[]): LaunchSpec {

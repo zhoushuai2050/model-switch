@@ -330,12 +330,40 @@ test('claude apply maps unofficial models through official aliases and preserves
   assert.deepEqual(settings.permissions.allow, ['Bash(*)']);
   const live = engine.listAgents().find((item) => item.id === 'claude');
   assert.equal(live?.model, 'grok-4.6');
+  assert.equal(live?.currentProviderId, engine.listProviders().find((item) => item.name === 'lvyrix')?.id);
+  assert.equal(settings.mswProviderId, live?.currentProviderId);
   const spec = engine.launch({ agent: 'claude' });
   assert.equal(spec.env.ANTHROPIC_MODEL, undefined);
   assert.equal(spec.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'grok-4.6');
   assert.equal(spec.env.ANTHROPIC_BASE_URL, 'https://api.lvyrix.com');
   assert.equal(spec.args[0], '--model');
   assert.equal(spec.args[1], 'sonnet');
+});
+
+test('claude current provider matches after ANTHROPIC_BASE_URL strips /v1', () => {
+  const engine = new Engine();
+  const provider = engine.addProvider({
+    name: 'grok2api',
+    apiKey: 'g2a-test',
+    anthropicUrl: 'https://relay.example/grok2api/v1',
+    models: ['grok-4.6'],
+    agent: 'claude',
+  });
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  writeFileSync(
+    join(root, '.claude', 'settings.json'),
+    JSON.stringify({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'g2a-test',
+        ANTHROPIC_BASE_URL: 'https://relay.example/grok2api',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'grok-4.6',
+      },
+      model: 'sonnet',
+    }),
+  );
+  const live = engine.listAgents().find((item) => item.id === 'claude');
+  assert.equal(live?.baseUrl, 'https://relay.example/grok2api');
+  assert.equal(live?.currentProviderId, provider.id);
 });
 
 test('claude apply uses opus alias for opus-named models', () => {

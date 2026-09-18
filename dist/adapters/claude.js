@@ -8,7 +8,7 @@ const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku'];
 function settingsPath() {
     return join(claudeHome(), 'settings.json');
 }
-function anthropicBaseUrl(url) {
+export function anthropicBaseUrl(url) {
     return url.replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 function claudeAlias(model) {
@@ -84,16 +84,19 @@ export const claudeAdapter = {
         settings.env = applyEnvTemplate(settings.env || {}, envFromProvider(payload.provider, payload.model));
         if (payload.model)
             settings.model = claudeAlias(payload.model);
+        settings.mswProviderId = payload.provider.id;
         writeJson(settingsPath(), settings);
     },
     readStatus() {
         const settings = readJson(settingsPath());
         const env = settings?.env || {};
+        const providerId = asString(settings?.mswProviderId);
         return {
             configured: existsSync(settingsPath()),
             model: mappedModel(settings),
             baseUrl: env.ANTHROPIC_BASE_URL,
             providerLabel: env.ANTHROPIC_BASE_URL,
+            providerId,
         };
     },
     sessionLaunch(payload, extraArgs) {
