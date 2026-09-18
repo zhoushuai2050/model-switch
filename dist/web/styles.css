@@ -311,6 +311,16 @@ button { cursor: pointer; }
 .btn:disabled { opacity: 0.55; cursor: default; }
 .btn.icon { width: 32px; padding: 0; justify-content: center; }
 a.btn { text-decoration: none; color: inherit; }
+#btn-github {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+#btn-github:hover {
+  color: var(--ink);
+  background: var(--hover-bg);
+  border-color: transparent;
+}
 
 .main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 22px 0 64px; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
