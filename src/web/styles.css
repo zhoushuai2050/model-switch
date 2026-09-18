@@ -309,6 +309,8 @@ button { cursor: pointer; }
 .btn.danger { color: var(--red); border-color: transparent; background: var(--red-soft); }
 .btn.sm { height: 28px; padding: 0 9px; font-size: 12px; }
 .btn:disabled { opacity: 0.55; cursor: default; }
+.btn.icon { width: 32px; padding: 0; justify-content: center; }
+a.btn { text-decoration: none; color: inherit; }
 
 .main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 22px 0 64px; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
@@ -658,8 +660,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary-sof
 .toast.err { border-color: rgba(248,113,113,0.55); color: #fecaca; background: #3f1d22; }
 
 @media (max-width: 860px) {
-  .titlebar { height: auto; grid-template-columns: 1fr; padding: 12px 14px; }
+  .titlebar { height: auto; grid-template-columns: 1fr; padding: 12px 52px 12px 14px; }
   .title-actions, .switcher { justify-content: flex-start; }
+  #btn-github { position: absolute; top: 12px; right: 14px; }
   .toolbar { flex-direction: column; align-items: stretch; }
   .toolbar-actions { justify-content: space-between; }
   .search { min-width: 0; }

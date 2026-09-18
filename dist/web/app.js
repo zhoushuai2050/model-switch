@@ -76,6 +76,11 @@ function renderChrome() {
   if (sub) sub.textContent = t('app.subtitle');
   const mcp = $('#btn-mcp');
   if (mcp) mcp.textContent = t('nav.mcp');
+  const github = $('#btn-github');
+  if (github) {
+    github.title = t('nav.github');
+    github.setAttribute('aria-label', t('nav.github'));
+  }
   const search = $('#search');
   if (search) search.placeholder = t('search.placeholder');
   const themeLabel = $('#btn-theme-label');
