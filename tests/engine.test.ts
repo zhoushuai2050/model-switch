@@ -7,6 +7,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { grokBuildAdapter } from '../src/adapters/grok-build.ts';
 import { resetDbCache } from '../src/core/db.ts';
 import { Engine } from '../src/core/engine.ts';
+import { PRESETS } from '../src/core/presets.ts';
 
 const fakeAgent = join(dirname(fileURLToPath(import.meta.url)), 'fake-agent.cjs');
 let originalPath = '';
@@ -148,6 +149,57 @@ test('openai providers for Codex, Grok, and OpenCode stay independent', () => {
   engine.updateProvider(codex.id, { name: 'codex-relay' });
   assert.equal(engine.getProvider(grok.id).provider.name, 'relay');
   assert.equal(engine.getProvider(opencode.id).provider.name, 'relay');
+});
+
+test('preset default URLs match official provider endpoints', () => {
+  const expected: Record<string, { websiteUrl?: string; openai?: string; anthropic?: string }> = {
+    openai: { websiteUrl: 'https://platform.openai.com', openai: 'https://api.openai.com/v1' },
+    anthropic: { websiteUrl: 'https://console.anthropic.com', anthropic: 'https://api.anthropic.com' },
+    deepseek: {
+      websiteUrl: 'https://platform.deepseek.com',
+      openai: 'https://api.deepseek.com/v1',
+      anthropic: 'https://api.deepseek.com/anthropic',
+    },
+    kimi: {
+      websiteUrl: 'https://platform.moonshot.cn',
+      openai: 'https://api.moonshot.cn/v1',
+      anthropic: 'https://api.moonshot.cn/anthropic',
+    },
+    glm: {
+      websiteUrl: 'https://open.bigmodel.cn',
+      openai: 'https://open.bigmodel.cn/api/paas/v4',
+      anthropic: 'https://open.bigmodel.cn/api/anthropic',
+    },
+    qwen: {
+      websiteUrl: 'https://dashscope.console.aliyun.com',
+      openai: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    },
+    siliconflow: {
+      websiteUrl: 'https://siliconflow.cn',
+      openai: 'https://api.siliconflow.cn/v1',
+    },
+    openrouter: {
+      websiteUrl: 'https://openrouter.ai',
+      openai: 'https://openrouter.ai/api/v1',
+      anthropic: 'https://openrouter.ai/api',
+    },
+    minimax: {
+      websiteUrl: 'https://platform.minimax.cn',
+      openai: 'https://api.minimax.cn/v1',
+      anthropic: 'https://api.minimax.cn/anthropic',
+    },
+    groq: {
+      websiteUrl: 'https://console.groq.com',
+      openai: 'https://api.groq.com/openai/v1',
+    },
+  };
+  assert.deepEqual(PRESETS.map((preset) => preset.id), Object.keys(expected));
+  for (const preset of PRESETS) {
+    const want = expected[preset.id];
+    assert.equal(preset.websiteUrl, want.websiteUrl, `${preset.id} websiteUrl`);
+    assert.equal(preset.protocols.openai?.baseUrl, want.openai, `${preset.id} openai`);
+    assert.equal(preset.protocols.anthropic?.baseUrl, want.anthropic, `${preset.id} anthropic`);
+  }
 });
 
 test('addProvider isolates a preset to one agent instead of creating a multi-protocol provider', () => {

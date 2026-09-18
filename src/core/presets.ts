@@ -121,10 +121,10 @@ export const PRESETS: Preset[] = [
   {
     id: 'minimax',
     name: 'MiniMax',
-    websiteUrl: 'https://platform.minimax.io',
+    websiteUrl: 'https://platform.minimax.cn',
     protocols: {
-      openai: { baseUrl: 'https://api.minimax.io/v1', wireApi: 'chat' },
-      anthropic: { baseUrl: 'https://api.minimax.io/anthropic', authMode: 'auth_token' },
+      openai: { baseUrl: 'https://api.minimax.cn/v1', wireApi: 'chat' },
+      anthropic: { baseUrl: 'https://api.minimax.cn/anthropic', authMode: 'auth_token' },
     },
     models: [{ modelId: 'MiniMax-M2.5', alias: 'minimax' }],
   },
