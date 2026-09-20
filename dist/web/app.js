@@ -1044,7 +1044,11 @@ document.body.addEventListener('click', async (event) => {
     pickAgentPackageVersion(target);
     return;
   }
-  if (target.closest('[data-agent-manage], [data-agent-install]')) {
+  if (target.closest('[data-agent-install]')) {
+    runAgentPackageJob('install').catch((error) => toast(error.message || String(error), true));
+    return;
+  }
+  if (target.closest('[data-agent-manage]')) {
     openAgentPackageModal().catch((error) => toast(error.message || String(error), true));
     return;
   }
