@@ -307,6 +307,37 @@ test('claude adapter writes anthropic env', () => {
   assert.equal(settings.model, 'sonnet');
   assert.equal(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'kimi-k2.5');
   assert.equal(settings.env.ANTHROPIC_MODEL, undefined);
+  assert.match(settings.env.NO_PROXY, /api\.moonshot\.cn/);
+  assert.match(settings.env.NO_PROXY, /127\.0\.0\.1/);
+  assert.equal(settings.env.no_proxy, settings.env.NO_PROXY);
+});
+
+test('claude apply keeps existing NO_PROXY and adds the Anthropic API host', () => {
+  mkdirSync(join(root, '.claude'), { recursive: true });
+  writeFileSync(
+    join(root, '.claude', 'settings.json'),
+    JSON.stringify({
+      env: {
+        NO_PROXY: '127.0.0.1,localhost',
+        no_proxy: '127.0.0.1,localhost',
+      },
+    }),
+  );
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'zyg-MiniMax',
+    apiKey: 'sk-cp-test',
+    anthropicUrl: 'https://api.minimax.cn/anthropic',
+    models: ['MiniMax-M3'],
+    agent: 'claude',
+  });
+  engine.setAgent('claude');
+  engine.use('zyg-MiniMax');
+  const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
+  assert.equal(settings.env.ANTHROPIC_BASE_URL, 'https://api.minimax.cn/anthropic');
+  assert.match(settings.env.NO_PROXY, /api\.minimax\.cn/);
+  assert.match(settings.env.NO_PROXY, /127\.0\.0\.1/);
+  assert.match(settings.env.NO_PROXY, /localhost/);
 });
 
 test('claude apply maps unofficial models through official aliases and preserves other settings', () => {

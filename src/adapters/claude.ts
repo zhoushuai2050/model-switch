@@ -25,6 +25,23 @@ export function anthropicBaseUrl(url: string): string {
   return url.replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
+export function mergeNoProxy(existing: string | undefined, apiUrl: string): string {
+  const hosts = new Set<string>();
+  for (const part of String(existing || '').split(/[,;\s]+/)) {
+    const host = part.trim();
+    if (host) hosts.add(host);
+  }
+  hosts.add('127.0.0.1');
+  hosts.add('localhost');
+  try {
+    const host = new URL(apiUrl).hostname;
+    if (host) hosts.add(host);
+  } catch {
+    // ignore invalid urls
+  }
+  return [...hosts].join(',');
+}
+
 function claudeAlias(model: string): ClaudeAlias {
   const lower = model.toLowerCase();
   if (lower.includes('opus')) return 'opus';
@@ -54,6 +71,11 @@ function envFromProvider(provider: Provider, model: string): Record<string, stri
     env.ANTHROPIC_API_KEY = '';
   }
   return env;
+}
+
+function withApiNoProxy(env: Record<string, string>, existing?: string): Record<string, string> {
+  const bypass = mergeNoProxy(existing, env.ANTHROPIC_BASE_URL || '');
+  return { ...env, NO_PROXY: bypass, no_proxy: bypass };
 }
 
 function applyEnvTemplate(
@@ -96,7 +118,11 @@ export const claudeAdapter: Adapter = {
   apply(payload: ApplyPayload) {
     backupFiles('claude', this.liveFiles());
     const settings = readJson<Settings>(settingsPath()) || {};
-    settings.env = applyEnvTemplate(settings.env || {}, envFromProvider(payload.provider, payload.model));
+    const currentEnv = settings.env || {};
+    settings.env = applyEnvTemplate(
+      currentEnv,
+      withApiNoProxy(envFromProvider(payload.provider, payload.model), currentEnv.NO_PROXY || currentEnv.no_proxy),
+    );
     if (payload.model) settings.model = claudeAlias(payload.model);
     settings.mswProviderId = payload.provider.id;
     writeJson(settingsPath(), settings);
@@ -115,7 +141,10 @@ export const claudeAdapter: Adapter = {
   },
   sessionLaunch(payload: ApplyPayload, extraArgs: string[]): LaunchSpec {
     const bin = findBinary(this.binaries) || 'claude';
-    const env = envFromProvider(payload.provider, payload.model);
+    const env = withApiNoProxy(
+      envFromProvider(payload.provider, payload.model),
+      process.env.NO_PROXY || process.env.no_proxy,
+    );
     const cleaned = Object.fromEntries(Object.entries(env).filter(([, value]) => value));
     const alias = claudeAlias(payload.model);
     const args = extraArgs.some((item) => item === '--model' || item === '-m' || item.startsWith('--model='))
@@ -125,7 +154,10 @@ export const claudeAdapter: Adapter = {
   },
   probeSpec(payload: ApplyPayload, prompt: string, isolatedHome: string): ProbeSpec {
     const bin = findBinary(this.binaries) || 'claude';
-    const env = envFromProvider(payload.provider, payload.model);
+    const env = withApiNoProxy(
+      envFromProvider(payload.provider, payload.model),
+      process.env.NO_PROXY || process.env.no_proxy,
+    );
     const alias = claudeAlias(payload.model);
     return {
       command: bin,
