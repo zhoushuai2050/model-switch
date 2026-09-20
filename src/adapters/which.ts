@@ -38,15 +38,25 @@ export function findBinary(
   return undefined;
 }
 
+export function quoteCmdArg(value: string): string {
+  if (!/[\s&<>|^()"]/.test(value)) return value;
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+export function windowsCmdLine(command: string, args: string[] = []): string {
+  return [command, ...args].map(quoteCmdArg).join(' ');
+}
+
 export function spawnBinary(command: string, args: string[], options: SpawnOptions = {}): ChildProcess {
   const win = process.platform === 'win32';
   const script = win && /\.(cmd|bat)$/i.test(command);
   if (script) {
     const comspec = process.env.ComSpec || 'cmd.exe';
-    const quoted = `"${command.replace(/"/g, '')}"`;
-    return spawn(comspec, ['/d', '/s', '/c', quoted, ...args], {
+    const line = windowsCmdLine(command, args);
+    return spawn(comspec, ['/d', '/s', '/c', `"${line}"`], {
       ...options,
       windowsHide: options.windowsHide ?? true,
+      windowsVerbatimArguments: true,
     });
   }
   return spawn(command, args, {

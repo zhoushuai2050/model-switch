@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { executableExts, findBinary } from '../src/adapters/which.ts';
+import { executableExts, findBinary, quoteCmdArg, windowsCmdLine } from '../src/adapters/which.ts';
 
 test('executableExts skips extensionless files on Windows', () => {
   assert.deepEqual(executableExts('linux'), ['']);
@@ -36,4 +36,22 @@ test('findBinary prefers Windows .exe over .cmd', () => {
     pathext: '.EXE;.CMD;.BAT',
   });
   assert.equal(found, join(dir, 'claude.exe'));
+});
+
+test('windowsCmdLine quotes cmd shims that live under Program Files', () => {
+  const command = 'D:\\Program Files\\nodejs\\node_global\\claude.cmd';
+  const line = windowsCmdLine(command, [
+    '-p',
+    '--output-format',
+    'json',
+    '--model',
+    'sonnet',
+    '春天有什么特点？',
+  ]);
+  assert.equal(quoteCmdArg(command), `"${command}"`);
+  assert.equal(
+    line,
+    `"${command}" -p --output-format json --model sonnet 春天有什么特点？`,
+  );
+  assert.equal(`"${line}"`.startsWith('""D:\\Program Files\\'), true);
 });
