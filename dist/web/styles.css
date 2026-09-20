@@ -420,22 +420,26 @@ a.btn { text-decoration: none; color: inherit; }
   border-color: var(--primary-ring);
   background: var(--primary-soft);
 }
-.model-chip-name, .model-chip-del, .model-chip-add { appearance: none; -webkit-appearance: none; }
+.model-chip-name, .model-chip-del, .model-chip-copy, .model-chip-add { appearance: none; -webkit-appearance: none; }
 .model-chip-name {
   border: 0; background: transparent; min-width: 0; max-width: 220px;
   color: var(--ink); height: 26px; padding: 0 10px;
   display: inline-flex; align-items: center;
   font-size: 12px; font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  user-select: text; -webkit-user-select: text;
 }
 .model-chip.selected .model-chip-name { color: var(--primary); font-weight: 700; }
-.model-chip-del {
+.model-chip-copy, .model-chip-del {
   border: 0; border-left: 1px solid var(--line);
   background: transparent; color: var(--faint);
   width: 22px; height: 26px; padding: 0; flex: none;
   opacity: 0;
+  display: inline-flex; align-items: center; justify-content: center;
 }
+.model-chip:hover .model-chip-copy, .model-chip:focus-within .model-chip-copy,
 .model-chip:hover .model-chip-del, .model-chip:focus-within .model-chip-del { opacity: 1; }
+.model-chip-copy:hover { color: var(--ink); background: var(--hover-bg); }
 .model-chip-del:hover { color: var(--red); background: var(--red-soft); }
 .model-chip-add {
   height: 26px; padding: 0 10px; border-radius: 999px;

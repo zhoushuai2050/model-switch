@@ -167,8 +167,27 @@ function modelChipHtml(modelId, selected, providerId = '') {
     <button type="button" class="model-chip-name" data-model-select="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${escapeHtml(title)}: ${escapeHtml(modelId)}">
       ${escapeHtml(modelId)}
     </button>
+    <button type="button" class="model-chip-copy" data-model-copy="${escapeHtml(modelId)}" title="${t('model.copyTitle')}">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
     <button type="button" class="model-chip-del" data-model-delete="${escapeHtml(providerId)}" data-model="${escapeHtml(modelId)}" title="${t('model.deleteTitle')}">×</button>
   </div>`;
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.setAttribute('readonly', '');
+  input.style.position = 'fixed';
+  input.style.left = '-9999px';
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
 }
 
 function displayUrl(url) {
@@ -1072,6 +1091,16 @@ document.body.addEventListener('click', async (event) => {
   }
   if (target.hasAttribute('data-open-add-model')) {
     openAddModelModal(target.getAttribute('data-open-add-model') || '');
+    return;
+  }
+  if (target.hasAttribute('data-model-copy')) {
+    const modelId = target.getAttribute('data-model-copy') || '';
+    try {
+      await copyText(modelId);
+      toast(t('model.copied', { name: modelId }));
+    } catch {
+      toast(t('model.copyFail'), true);
+    }
     return;
   }
   if (target.hasAttribute('data-model-delete')) {
