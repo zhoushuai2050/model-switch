@@ -30,9 +30,7 @@ msw serve
 ## 安装
 
 ```bash
-npm i -g https://github.com/zhoushuai2050/model-switch/archive/refs/heads/main.tar.gz \
-  --omit=dev --ignore-scripts \
-  --registry=https://registry.npmjs.org/
+npm i -g https://github.com/zhoushuai2050/model-switch/archive/refs/heads/main.tar.gz --omit=dev --ignore-scripts --registry=https://registry.npmjs.org/
 ```
 
 Linux / macOS 再执行 `hash -r`，然后：
