@@ -5,7 +5,7 @@ import { adapters, getAdapter } from "../adapters/index.js";
 import { spawnBinary } from "../adapters/which.js";
 import * as db from "./db.js";
 import { atomicWrite, backupFiles, readText } from "./fsutil.js";
-import { getPreset, PRESETS } from "./presets.js";
+import { canonicalUpstreamModel, getPreset, PRESETS } from "./presets.js";
 import { withPathEnv } from "./paths.js";
 import { buildChildEnv, classifyProbe, cleanupPingDirs, commandLine, createPingDirs, isProbeTestStep, PING_TIMEOUT_MS, randomPingPrompt, runCommand, } from "./probe.js";
 import { collectAgentInstallInfo, collectAgentVersions, installAgentSteps, listAgentInstallInfo as collectAllAgentInstallInfo, uninstallAgentSteps, } from "./agent-install.js";
@@ -555,13 +555,14 @@ function payloadForAgent(agent) {
 }
 function applySpecific(provider, model, agent, scope = 'global') {
     const result = emptyResult(scope);
+    const resolved = canonicalUpstreamModel(model);
     result.providerId = provider.id;
-    result.model = model;
+    result.model = resolved;
     result.agentId = agent;
-    applyPayload(agent, { provider, model }, result);
+    applyPayload(agent, { provider, model: resolved }, result);
     if (scope === 'global')
-        db.setState({ currentModels: { [agent]: model } });
-    db.logSwitch({ providerId: provider.id, agentId: agent, modelId: model, scope });
+        db.setState({ currentModels: { [agent]: resolved } });
+    db.logSwitch({ providerId: provider.id, agentId: agent, modelId: resolved, scope });
     return result;
 }
 function defaultModelFor(providerId, agent) {
@@ -581,13 +582,14 @@ function selectedModelId(models) {
     return models.find((item) => item.selected)?.modelId || models[0]?.modelId;
 }
 function modelIdsForPayload(providerId, current) {
-    const models = db.modelsForProvider(providerId).map((row) => row.modelId);
-    const ordered = current && models.includes(current)
-        ? [current, ...models.filter((item) => item !== current)]
-        : current
-            ? [current, ...models]
+    const models = db.modelsForProvider(providerId).map((row) => canonicalUpstreamModel(row.modelId));
+    const resolved = current ? canonicalUpstreamModel(current) : '';
+    const ordered = resolved && models.includes(resolved)
+        ? [resolved, ...models.filter((item) => item !== resolved)]
+        : resolved
+            ? [resolved, ...models]
             : models;
-    return [...new Set(ordered.length ? ordered : current ? [current] : [])];
+    return [...new Set(ordered.length ? ordered : resolved ? [resolved] : [])];
 }
 function modelListForAdd(models, preset) {
     if (models?.length) {

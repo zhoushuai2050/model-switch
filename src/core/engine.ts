@@ -6,7 +6,7 @@ import { spawnBinary } from '../adapters/which.ts';
 import type { LaunchSpec } from '../adapters/types.ts';
 import * as db from './db.ts';
 import { atomicWrite, backupFiles, readText } from './fsutil.ts';
-import { getPreset, PRESETS, type Preset } from './presets.ts';
+import { canonicalUpstreamModel, getPreset, PRESETS, type Preset } from './presets.ts';
 import { withPathEnv } from './paths.ts';
 import {
   buildChildEnv,
@@ -670,12 +670,13 @@ function payloadForAgent(agent: AgentId): ApplyPayload {
 
 function applySpecific(provider: Provider, model: string, agent: AgentId, scope: 'global' | 'session' = 'global'): SwitchResult {
   const result = emptyResult(scope);
+  const resolved = canonicalUpstreamModel(model);
   result.providerId = provider.id;
-  result.model = model;
+  result.model = resolved;
   result.agentId = agent;
-  applyPayload(agent, { provider, model }, result);
-  if (scope === 'global') db.setState({ currentModels: { [agent]: model } });
-  db.logSwitch({ providerId: provider.id, agentId: agent, modelId: model, scope });
+  applyPayload(agent, { provider, model: resolved }, result);
+  if (scope === 'global') db.setState({ currentModels: { [agent]: resolved } });
+  db.logSwitch({ providerId: provider.id, agentId: agent, modelId: resolved, scope });
   return result;
 }
 
@@ -695,13 +696,14 @@ function selectedModelId(models: ModelRow[]): string | undefined {
 }
 
 function modelIdsForPayload(providerId: string, current: string): string[] {
-  const models = db.modelsForProvider(providerId).map((row) => row.modelId);
-  const ordered = current && models.includes(current)
-    ? [current, ...models.filter((item) => item !== current)]
-    : current
-      ? [current, ...models]
+  const models = db.modelsForProvider(providerId).map((row) => canonicalUpstreamModel(row.modelId));
+  const resolved = current ? canonicalUpstreamModel(current) : '';
+  const ordered = resolved && models.includes(resolved)
+    ? [resolved, ...models.filter((item) => item !== resolved)]
+    : resolved
+      ? [resolved, ...models]
       : models;
-  return [...new Set(ordered.length ? ordered : current ? [current] : [])];
+  return [...new Set(ordered.length ? ordered : resolved ? [resolved] : [])];
 }
 
 function modelListForAdd(models: string[] | undefined, preset?: Preset): Array<{ modelId: string; alias?: string; agentHint?: AgentId | 'any' }> {

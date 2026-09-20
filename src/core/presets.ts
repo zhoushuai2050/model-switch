@@ -126,7 +126,11 @@ export const PRESETS: Preset[] = [
       openai: { baseUrl: 'https://api.minimax.cn/v1', wireApi: 'chat' },
       anthropic: { baseUrl: 'https://api.minimax.cn/anthropic', authMode: 'auth_token' },
     },
-    models: [{ modelId: 'MiniMax-M2.5', alias: 'minimax' }],
+    models: [
+      { modelId: 'MiniMax-M3', alias: 'minimax' },
+      { modelId: 'MiniMax-M2.7' },
+      { modelId: 'MiniMax-M2.5' },
+    ],
   },
   {
     id: 'groq',
@@ -145,4 +149,22 @@ export const PRESETS: Preset[] = [
 export function getPreset(id: string): Preset | undefined {
   const needle = id.toLowerCase();
   return PRESETS.find((preset) => preset.id === needle || preset.name.toLowerCase() === needle);
+}
+
+const UPSTREAM_MODEL_ALIASES: Record<string, string> = {
+  'minmax-m3': 'MiniMax-M3',
+  'minimax-m3': 'MiniMax-M3',
+  'minmax-m2.7': 'MiniMax-M2.7',
+  'minimax-m2.7': 'MiniMax-M2.7',
+  'minmax-m2.5': 'MiniMax-M2.5',
+  'minimax-m2.5': 'MiniMax-M2.5',
+  'minmax-m2.1': 'MiniMax-M2.1',
+  'minimax-m2.1': 'MiniMax-M2.1',
+  'minmax-m2': 'MiniMax-M2',
+  'minimax-m2': 'MiniMax-M2',
+};
+
+export function canonicalUpstreamModel(model: string): string {
+  const trimmed = model.trim();
+  return UPSTREAM_MODEL_ALIASES[trimmed.toLowerCase()] || trimmed;
 }

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { grokBuildAdapter } from '../src/adapters/grok-build.ts';
 import { resetDbCache } from '../src/core/db.ts';
 import { Engine } from '../src/core/engine.ts';
-import { PRESETS } from '../src/core/presets.ts';
+import { canonicalUpstreamModel, PRESETS } from '../src/core/presets.ts';
 
 const fakeAgent = join(dirname(fileURLToPath(import.meta.url)), 'fake-agent.cjs');
 let originalPath = '';
@@ -149,6 +149,30 @@ test('openai providers for Codex, Grok, and OpenCode stay independent', () => {
   engine.updateProvider(codex.id, { name: 'codex-relay' });
   assert.equal(engine.getProvider(grok.id).provider.name, 'relay');
   assert.equal(engine.getProvider(opencode.id).provider.name, 'relay');
+});
+
+test('canonicalUpstreamModel restores MiniMax official casing', () => {
+  assert.equal(canonicalUpstreamModel('MinMax-M3'), 'MiniMax-M3');
+  assert.equal(canonicalUpstreamModel('minmax-m3'), 'MiniMax-M3');
+  assert.equal(canonicalUpstreamModel('MiniMax-M3'), 'MiniMax-M3');
+  assert.equal(canonicalUpstreamModel('grok-4.6'), 'grok-4.6');
+});
+
+test('codex apply writes official MiniMax-M3 instead of MinMax-M3', () => {
+  const engine = new Engine();
+  engine.addProvider({
+    name: 'zyg-MiniMax',
+    apiKey: 'sk-x',
+    openaiUrl: 'https://api.minimax.cn/v1',
+    models: ['MinMax-M3'],
+    agent: 'codex',
+  });
+  engine.setAgent('codex');
+  engine.use('zyg-MiniMax');
+  const text = readFileSync(join(root, '.codex', 'config.toml'), 'utf8');
+  assert.match(text, /model = "MiniMax-M3"/);
+  const catalog = JSON.parse(readFileSync(join(root, '.codex', 'msw-model-catalog.json'), 'utf8'));
+  assert.deepEqual(catalog.models.map((row: { slug: string }) => row.slug), ['MiniMax-M3']);
 });
 
 test('preset default URLs match official provider endpoints', () => {
