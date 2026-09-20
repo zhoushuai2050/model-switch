@@ -2,8 +2,8 @@
 import './core/silence-sqlite-warning.ts';
 import { engine, EngineError } from './core/engine.ts';
 import { HELP, HELP_CUSTOM } from './cli/help.ts';
-import { selfUpdate, updateNpmArgs, resolveNpm } from './cli/update.ts';
-import { isNpmVersion, runAgentNpmInstall, runAgentNpmUninstall } from './core/agent-install.ts';
+import { selfUpdate, updateNpmArgs } from './cli/update.ts';
+import { isNpmVersion, resolveNpmInvocation, runAgentNpmInstall, runAgentNpmUninstall } from './core/agent-install.ts';
 import { flag, flagList, parseArgv } from './cli/parse.ts';
 import { color, printProviders, printStatus, printSwitch } from './cli/format.ts';
 import { runTui } from './cli/tui.ts';
@@ -113,10 +113,10 @@ async function dispatch(): Promise<void> {
       return;
     case 'update':
     case 'upgrade': {
-      const npm = resolveNpm();
+      const invocation = resolveNpmInvocation();
       const npmArgs = updateNpmArgs();
       console.log(color.bold('Updating msw from GitHub main'));
-      console.log(color.dim(`${npm} ${npmArgs.join(' ')}`));
+      console.log(color.dim(`${[invocation.command, ...invocation.prefix, ...npmArgs].join(' ')}`));
       await selfUpdate();
       console.log(color.green('msw 已更新。'));
       if (process.platform !== 'win32') {

@@ -19,10 +19,30 @@ export function npmPackageSpec(npmPackage, version) {
     return version ? `${npmPackage}@${version}` : npmPackage;
 }
 export function agentInstallNpmArgs(npmPackage, version) {
-    return ['i', '-g', npmPackageSpec(npmPackage, version), `--registry=${AGENT_NPM_REGISTRY}`];
+    return [
+        'i',
+        '-g',
+        npmPackageSpec(npmPackage, version),
+        '--no-fund',
+        '--no-audit',
+        '--no-progress',
+        `--registry=${AGENT_NPM_REGISTRY}`,
+    ];
 }
 export function agentUninstallNpmArgs(npmPackage) {
-    return ['uninstall', '-g', npmPackage, `--registry=${AGENT_NPM_REGISTRY}`];
+    return ['uninstall', '-g', npmPackage, '--no-progress', `--registry=${AGENT_NPM_REGISTRY}`];
+}
+export function resolveNpmInvocation() {
+    const npm = resolveNpm();
+    if (process.platform !== 'win32')
+        return { command: npm, prefix: [] };
+    const cli = findNpmCliJs(npm);
+    if (cli)
+        return { command: process.execPath, prefix: [cli] };
+    return {
+        command: process.env.ComSpec || 'cmd.exe',
+        prefix: ['/d', '/s', '/c', 'npm'],
+    };
 }
 export function isNpmVersion(value) {
     return /^v?\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.]+)?$/.test(String(value || '').trim());
@@ -111,14 +131,32 @@ export async function fetchNpmLatest(npmPackage, timeoutMs = 8000) {
     }
 }
 const VERSION_ARGS = [['--version'], ['-v'], ['version']];
-export async function readInstalledVersion(bin) {
+export async function readInstalledVersion(bin, npmPackage) {
     for (const args of VERSION_ARGS) {
         const run = await runCommand({ command: bin, args, env: envMap() }, { cwd: process.cwd(), timeoutMs: 8000 });
         const version = parseAgentVersion(`${run.stdout}\n${run.stderr}`);
         if (version)
             return version;
     }
+    if (npmPackage) {
+        const fromNpm = await readNpmGlobalVersion(npmPackage);
+        if (fromNpm)
+            return fromNpm;
+    }
     return undefined;
+}
+async function readNpmGlobalVersion(npmPackage) {
+    const result = await spawnNpm(['list', '-g', npmPackage, '--depth=0', '--json', `--registry=${AGENT_NPM_REGISTRY}`], false, 8000);
+    if (result.code !== 0)
+        return parseAgentVersion(`${result.stdout}\n${result.stderr}`);
+    try {
+        const data = JSON.parse(result.stdout);
+        const version = data.dependencies?.[npmPackage]?.version;
+        return version && isNpmVersion(version) ? version : undefined;
+    }
+    catch {
+        return parseAgentVersion(result.stdout);
+    }
 }
 export function listAgentInstallInfo() {
     return Promise.all(AGENT_IDS.map((id) => collectAgentInstallInfo(id)));
@@ -127,7 +165,7 @@ export async function collectAgentInstallInfo(agentId) {
     const adapter = getAdapter(agentId);
     const detected = adapter.detect();
     const npmPackage = AGENT_NPM_PACKAGES[agentId];
-    const version = detected.bin ? await readInstalledVersion(detected.bin) : undefined;
+    const version = detected.bin ? await readInstalledVersion(detected.bin, npmPackage) : undefined;
     let latest;
     let latestError;
     try {
@@ -182,7 +220,7 @@ async function runAgentNpm(args, opts = {}) {
         };
     }
     const started = Date.now();
-    const result = await spawnNpm(npm, args, Boolean(opts.inherit));
+    const result = await spawnNpm(args, Boolean(opts.inherit));
     return {
         command,
         args,
@@ -236,8 +274,7 @@ export async function fetchNpmVersions(npmPackage, timeoutMs = 20000) {
     }
 }
 async function fetchNpmVersionsViaNpm(npmPackage, timeoutMs) {
-    const npm = resolveNpm();
-    const result = await spawnNpm(npm, ['view', npmPackage, 'versions', 'dist-tags', '--json', `--registry=${AGENT_NPM_REGISTRY}`], false, timeoutMs);
+    const result = await spawnNpm(['view', npmPackage, 'versions', 'dist-tags', '--json', `--registry=${AGENT_NPM_REGISTRY}`], false, timeoutMs);
     if (result.code !== 0) {
         throw new Error(clipInstallLog(result.stderr || result.stdout || `npm view exit ${result.code}`, 300));
     }
@@ -341,7 +378,7 @@ export async function* installAgentSteps(agentId, version) {
     };
     const adapter = getAdapter(info.id);
     const detected = adapter.detect();
-    const installedVersion = detected.bin ? await readInstalledVersion(detected.bin) : undefined;
+    const installedVersion = detected.bin ? await readInstalledVersion(detected.bin, info.npmPackage) : undefined;
     if (!detected.installed) {
         const detail = '安装命令已完成，但 PATH 里还没有找到可执行文件。新开一个终端后再试，或执行 hash -r。';
         yield { id: 'detect', title: `检测 ${info.name}`, status: 'fail', detail };
@@ -399,11 +436,20 @@ export async function* uninstallAgentSteps(agentId) {
     yield { id: 'detect', title: `检测 ${info.name}`, status: 'ok', detail: '未找到可执行文件' };
     yield { id: 'summary', title: `${info.name} 已卸载`, status: 'ok' };
 }
-function resolveNpm() {
+export function resolveNpm() {
     const sibling = join(dirname(process.execPath), process.platform === 'win32' ? 'npm.cmd' : 'npm');
     if (existsSync(sibling))
         return sibling;
     return findBinary(['npm']) || 'npm';
+}
+function findNpmCliJs(npmPath) {
+    const dirs = new Set([dirname(npmPath), dirname(process.execPath)]);
+    for (const dir of dirs) {
+        const cli = join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+        if (existsSync(cli))
+            return cli;
+    }
+    return undefined;
 }
 function encodeNpmPackage(npmPackage) {
     return npmPackage.replace('/', '%2F');
@@ -421,6 +467,11 @@ function envMap() {
         if (value !== undefined)
             env[key] = value;
     }
+    env.npm_config_progress = 'false';
+    env.npm_config_audit = 'false';
+    env.npm_config_fund = 'false';
+    env.npm_config_update_notifier = 'false';
+    env.npm_config_foreground_scripts = 'true';
     return env;
 }
 function clipInstallLog(text, length = 4000) {
@@ -429,18 +480,21 @@ function clipInstallLog(text, length = 4000) {
         return trimmed;
     return `…${trimmed.slice(-length)}`;
 }
-function spawnNpm(npm, args, inherit, timeoutMs = INSTALL_TIMEOUT_MS) {
+function spawnNpm(args, inherit, timeoutMs = INSTALL_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         let stdout = '';
         let stderr = '';
         let settled = false;
-        const child = spawn(npm, args, {
+        const invocation = resolveNpmInvocation();
+        const child = spawn(invocation.command, [...invocation.prefix, ...args], {
             env: envMap(),
-            stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
-            shell: process.platform === 'win32',
+            stdio: inherit ? 'inherit' : ['pipe', 'pipe', 'pipe'],
+            windowsHide: process.platform === 'win32',
         });
+        if (!inherit)
+            child.stdin?.end();
         const timer = setTimeout(() => {
-            child.kill('SIGTERM');
+            killChildTree(child);
             finish(1, `npm timed out (${Math.round(timeoutMs / 1000)}s)`);
         }, timeoutMs);
         const finish = (code, extraErr = '') => {
@@ -468,6 +522,27 @@ function spawnNpm(npm, args, inherit, timeoutMs = INSTALL_TIMEOUT_MS) {
             else
                 finish(1, error instanceof Error ? error.message : String(error));
         });
-        child.on('exit', (code) => finish(code ?? 1));
+        child.on('close', (code) => finish(code ?? 1));
     });
+}
+function killChildTree(child) {
+    if (!child.pid)
+        return;
+    if (process.platform === 'win32') {
+        spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `taskkill /pid ${child.pid} /t /f`], {
+            windowsHide: true,
+            stdio: 'ignore',
+        });
+        return;
+    }
+    try {
+        child.kill('SIGTERM');
+    }
+    catch { /* already exited */ }
+    setTimeout(() => {
+        try {
+            child.kill('SIGKILL');
+        }
+        catch { /* already exited */ }
+    }, 1000);
 }

@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomInt } from 'node:crypto';
+import { spawnBinary } from '../adapters/which.ts';
 import type { PingStatus } from './types.ts';
 
 export const PING_TIMEOUT_MS = 45_000;
@@ -105,11 +105,12 @@ export async function runCommand(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let child;
     try {
-      child = spawn(spec.command, spec.args, {
+      child = spawnBinary(spec.command, spec.args, {
         cwd: opts.cwd,
         env: spec.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
+      child.stdin?.end();
     } catch (error) {
       finish({
         code: null,

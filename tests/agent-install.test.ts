@@ -12,6 +12,7 @@ import {
   agentInstallAction,
   agentInstallNpmArgs,
   agentUninstallNpmArgs,
+  resolveNpmInvocation,
   compareVersions,
   isNpmVersion,
   limitAgentVersions,
@@ -117,6 +118,9 @@ test('agent npm packages cover every agent and use the public registry', () => {
     'i',
     '-g',
     '@xai-official/grok',
+    '--no-fund',
+    '--no-audit',
+    '--no-progress',
     '--registry=https://registry.npmjs.org/',
   ]);
 });
@@ -185,14 +189,25 @@ test('agentInstallNpmArgs pins a specific package version', () => {
     'i',
     '-g',
     '@xai-official/grok@1.0.30',
+    '--no-fund',
+    '--no-audit',
+    '--no-progress',
     '--registry=https://registry.npmjs.org/',
   ]);
   assert.deepEqual(agentUninstallNpmArgs('@google/gemini-cli'), [
     'uninstall',
     '-g',
     '@google/gemini-cli',
+    '--no-progress',
     '--registry=https://registry.npmjs.org/',
   ]);
+});
+
+test('resolveNpmInvocation avoids cmd wrapping on Unix', () => {
+  const invocation = resolveNpmInvocation();
+  assert.ok(invocation.command);
+  assert.equal(Array.isArray(invocation.prefix), true);
+  if (process.platform !== 'win32') assert.deepEqual(invocation.prefix, []);
 });
 
 test('isNpmVersion accepts semver-like ids and rejects tags or paths', () => {

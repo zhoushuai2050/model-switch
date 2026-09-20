@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { anthropicBaseUrl } from '../adapters/claude.ts';
 import { adapters, getAdapter } from '../adapters/index.ts';
+import { spawnBinary } from '../adapters/which.ts';
 import type { LaunchSpec } from '../adapters/types.ts';
 import * as db from './db.ts';
 import { atomicWrite, backupFiles, readText } from './fsutil.ts';
@@ -406,7 +406,7 @@ export class Engine {
   }
 
   spawn(spec: LaunchSpec): void {
-    const child = spawn(spec.command, spec.args, {
+    const child = spawnBinary(spec.command, spec.args, {
       stdio: 'inherit',
       env: { ...process.env, ...spec.env },
     });

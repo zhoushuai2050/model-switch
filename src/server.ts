@@ -71,36 +71,12 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
     const id = decodeURIComponent(path.split('/')[3] || '');
     const body = await readBody(req);
     const version = body.version ? String(body.version) : undefined;
-    res.writeHead(200, {
-      'content-type': 'application/x-ndjson; charset=utf-8',
-      'cache-control': 'no-store',
-    });
-    try {
-      for await (const step of engine.installAgent(id, version)) {
-        res.write(`${JSON.stringify(step)}\n`);
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      res.write(`${JSON.stringify({ id: 'summary', title: '安装失败', status: 'fail', detail })}\n`);
-    }
-    res.end();
+    await streamNdjson(res, '安装失败', engine.installAgent(id, version));
     return;
   }
   if (req.method === 'POST' && path.startsWith('/api/agents/') && path.endsWith('/uninstall')) {
     const id = decodeURIComponent(path.split('/')[3] || '');
-    res.writeHead(200, {
-      'content-type': 'application/x-ndjson; charset=utf-8',
-      'cache-control': 'no-store',
-    });
-    try {
-      for await (const step of engine.uninstallAgent(id)) {
-        res.write(`${JSON.stringify(step)}\n`);
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      res.write(`${JSON.stringify({ id: 'summary', title: '卸载失败', status: 'fail', detail })}\n`);
-    }
-    res.end();
+    await streamNdjson(res, '卸载失败', engine.uninstallAgent(id));
     return;
   }
   if (req.method === 'GET' && path === '/api/providers') return send(res, 200, engine.listProviders());
@@ -184,19 +160,11 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
   if (req.method === 'POST' && path.startsWith('/api/providers/') && path.endsWith('/ping')) {
     const id = decodeURIComponent(path.split('/')[3] || '');
     const agent = url.searchParams.get('agent');
-    res.writeHead(200, {
-      'content-type': 'application/x-ndjson; charset=utf-8',
-      'cache-control': 'no-store',
-    });
-    try {
-      for await (const step of engine.pingSteps(id, agent && isAgentId(agent) ? agent : undefined)) {
-        res.write(`${JSON.stringify(step)}\n`);
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      res.write(`${JSON.stringify({ id: 'summary', title: '测通失败', status: 'fail', detail })}\n`);
-    }
-    res.end();
+    await streamNdjson(
+      res,
+      '测通失败',
+      engine.pingSteps(id, agent && isAgentId(agent) ? agent : undefined),
+    );
     return;
   }
   if (req.method === 'DELETE' && path.startsWith('/api/providers/')) {
@@ -218,6 +186,26 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
     }));
   }
   send(res, 404, { error: 'not found' });
+}
+
+async function streamNdjson(res: ServerResponse, failTitle: string, steps: AsyncIterable<unknown>): Promise<void> {
+  res.writeHead(200, {
+    'content-type': 'application/x-ndjson; charset=utf-8',
+    'cache-control': 'no-store',
+    'x-accel-buffering': 'no',
+  });
+  res.flushHeaders();
+  const write = (row: unknown) => new Promise<void>((resolve) => {
+    if (res.write(`${JSON.stringify(row)}\n`)) resolve();
+    else res.once('drain', resolve);
+  });
+  try {
+    for await (const step of steps) await write(step);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    await write({ id: 'summary', title: failTitle, status: 'fail', detail });
+  }
+  res.end();
 }
 
 function staticFile(res: ServerResponse, pathname: string): void {

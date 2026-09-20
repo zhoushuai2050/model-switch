@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomInt } from 'node:crypto';
+import { spawnBinary } from "../adapters/which.js";
 export const PING_TIMEOUT_MS = 45_000;
 const PING_PROMPTS = [
     '你好',
@@ -84,11 +84,12 @@ export async function runCommand(spec, opts) {
         let timer;
         let child;
         try {
-            child = spawn(spec.command, spec.args, {
+            child = spawnBinary(spec.command, spec.args, {
                 cwd: opts.cwd,
                 env: spec.env,
-                stdio: ['ignore', 'pipe', 'pipe'],
+                stdio: ['pipe', 'pipe', 'pipe'],
             });
+            child.stdin?.end();
         }
         catch (error) {
             finish({

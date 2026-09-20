@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { anthropicBaseUrl } from "../adapters/claude.js";
 import { adapters, getAdapter } from "../adapters/index.js";
+import { spawnBinary } from "../adapters/which.js";
 import * as db from "./db.js";
 import { atomicWrite, backupFiles, readText } from "./fsutil.js";
 import { getPreset, PRESETS } from "./presets.js";
@@ -312,7 +312,7 @@ export class Engine {
         return getAdapter(agent).sessionLaunch(payload, opts.extraArgs || []);
     }
     spawn(spec) {
-        const child = spawn(spec.command, spec.args, {
+        const child = spawnBinary(spec.command, spec.args, {
             stdio: 'inherit',
             env: { ...process.env, ...spec.env },
         });
